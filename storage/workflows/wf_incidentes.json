@@ -1,0 +1,78 @@
+{
+  "specId": "wf_incidentes",
+  "specVersion": 1,
+  "tenantId": "luke_123",
+  "name": "Gestión de Incidentes",
+  "slug": "gestion_incidentes",
+  "states": [
+    {
+      "slug": "reportado",
+      "name": "Incidente reportado",
+      "type": "initial"
+    },
+    {
+      "slug": "en_resolucion",
+      "name": "En resolución",
+      "type": "intermediate"
+    },
+    {
+      "slug": "resuelto",
+      "name": "Resuelto",
+      "type": "final"
+    }
+  ],
+  "actions": [
+    {
+      "slug": "pasar_a_resolucion",
+      "from": "reportado",
+      "to": "en_resolucion",
+      "requiresForm": false,
+      "permission": "pasar_a_resolucion"
+    },
+    {
+      "slug": "resolver_incidencia",
+      "from": "en_resolucion",
+      "to": "resuelto",
+      "requiresForm": true,
+      "permission": "resolver_incidencia",
+      "form": {
+        "name": "Resolver incidencia",
+        "fields": [
+          {
+            "key": "diagnostico_final",
+            "type": "string",
+            "required": true
+          },
+          {
+            "key": "fecha_resolucion",
+            "type": "date",
+            "required": true
+          }
+        ]
+      }
+    }
+  ],
+  "permissions": [
+    {
+      "slug": "pasar_a_resolucion"
+    },
+    {
+      "slug": "resolver_incidencia"
+    }
+  ],
+  "automations": [
+    {
+      "slug": "notify_twilio_on_resuelto",
+      "on": {
+        "event": "task.state.changed",
+        "to": "resuelto"
+      },
+      "effect": {
+        "type": "twilio.notify.subscribers",
+        "params": {
+          "template": "resuelto_tpl_v1"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+pydantic-ai-slim[google]
+pydantic-ai-slim[mcp]
+fastapi
+uvicorn[standard]
+pydantic-settings
+python-dotenv
+pytest
+httpx
+requests

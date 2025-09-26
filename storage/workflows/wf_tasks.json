@@ -1,0 +1,130 @@
+{
+  "specId": "wf_tasks",
+  "specVersion": 1,
+  "tenantId": "luke_123",
+  "name": "Task Management",
+  "slug": "task_management",
+  "states": [
+    {
+      "slug": "todo",
+      "name": "To Do",
+      "type": "initial"
+    },
+    {
+      "slug": "in_progress",
+      "name": "In Progress",
+      "type": "intermediate"
+    },
+    {
+      "slug": "review",
+      "name": "In Review",
+      "type": "intermediate"
+    },
+    {
+      "slug": "done",
+      "name": "Done",
+      "type": "final"
+    },
+    {
+      "slug": "cancelled",
+      "name": "Cancelled",
+      "type": "final"
+    }
+  ],
+  "actions": [
+    {
+      "slug": "start_task",
+      "from": "todo",
+      "to": "in_progress",
+      "requiresForm": false,
+      "permission": "manage_tasks"
+    },
+    {
+      "slug": "submit_for_review",
+      "from": "in_progress",
+      "to": "review",
+      "requiresForm": true,
+      "permission": "manage_tasks",
+      "form": {
+        "name": "Task Completion",
+        "fields": [
+          {
+            "key": "completion_notes",
+            "type": "string",
+            "required": true
+          },
+          {
+            "key": "time_spent",
+            "type": "number",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "slug": "approve_task",
+      "from": "review",
+      "to": "done",
+      "requiresForm": false,
+      "permission": "approve_tasks"
+    },
+    {
+      "slug": "request_changes",
+      "from": "review",
+      "to": "in_progress",
+      "requiresForm": true,
+      "permission": "approve_tasks",
+      "form": {
+        "name": "Request Changes",
+        "fields": [
+          {
+            "key": "change_requests",
+            "type": "string",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "slug": "cancel_task",
+      "from": "todo",
+      "to": "cancelled",
+      "requiresForm": true,
+      "permission": "manage_tasks",
+      "form": {
+        "name": "Cancel Task",
+        "fields": [
+          {
+            "key": "cancellation_reason",
+            "type": "string",
+            "required": true
+          }
+        ]
+      }
+    }
+  ],
+  "permissions": [
+    {
+      "slug": "manage_tasks"
+    },
+    {
+      "slug": "approve_tasks"
+    }
+  ],
+  "automations": [
+    {
+      "slug": "notify_on_completion",
+      "on": {
+        "event": "task.state.changed",
+        "to": "done"
+      },
+      "effect": {
+        "type": "slack.notify",
+        "params": {
+          "channel": "#tasks",
+          "template": "task_completed"
+        }
+      }
+    }
+  ]
+}

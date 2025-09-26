@@ -1,0 +1,212 @@
+# Chat Agent PoC - Git Ignore File
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+.env
+
+# Environment Variables
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# IDE and Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Docker
+.dockerignore
+
+# Logs
+*.log
+logs/
+*.out
+
+# Database files (if any)
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# MacOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.tmp
+*.temp
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# Project Specific
+
+# Workflow Storage (keep structure but ignore content)
+svc-builder/storage/workflows/*.json
+!svc-builder/storage/workflows/.gitkeep
+
+# AI Agent conversation history (if implemented)
+ai-agent/conversations/
+ai-agent/chat_history/
+
+# MCP Server temporary files
+mcp-server/tmp/
+mcp-server/cache/
+
+# Test outputs
+test_results/
+test_logs/
+conversation_logs/
+
+# Docker volumes
+docker-volumes/
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Runtime configuration overrides
+config.local.py
+settings.local.py
+local_config.json
+
+# SSL certificates (if any)
+*.pem
+*.key
+*.crt
+*.cert
+
+# API Keys and secrets (should use .env instead)
+api_keys.json
+secrets.json
+credentials.json
+
+# Node modules (if any frontend is added)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build artifacts
+*.tar.gz
+*.zip
+*.rar
+
+# Coverage reports
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Profiling
+.prof
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# FastAPI specific
+.pytest_cache
+
+# Uvicorn
+uvicorn.log
+
+# Development tools
+.pre-commit-config.yaml.bak

@@ -1,0 +1,100 @@
+{
+  "specId": "wf_approval",
+  "specVersion": 1,
+  "tenantId": "luke_123",
+  "name": "Document Approval",
+  "slug": "document_approval",
+  "states": [
+    {
+      "slug": "draft",
+      "name": "Draft",
+      "type": "initial"
+    },
+    {
+      "slug": "pending_review",
+      "name": "Pending Review",
+      "type": "intermediate"
+    },
+    {
+      "slug": "approved",
+      "name": "Approved",
+      "type": "final"
+    },
+    {
+      "slug": "rejected",
+      "name": "Rejected",
+      "type": "final"
+    }
+  ],
+  "actions": [
+    {
+      "slug": "submit_for_review",
+      "from": "draft",
+      "to": "pending_review",
+      "requiresForm": false,
+      "permission": "submit_document"
+    },
+    {
+      "slug": "approve_document",
+      "from": "pending_review",
+      "to": "approved",
+      "requiresForm": true,
+      "permission": "approve_document",
+      "form": {
+        "name": "Approval Form",
+        "fields": [
+          {
+            "key": "approval_comments",
+            "type": "string",
+            "required": false
+          },
+          {
+            "key": "approved_by",
+            "type": "string",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "slug": "reject_document",
+      "from": "pending_review",
+      "to": "rejected",
+      "requiresForm": true,
+      "permission": "approve_document",
+      "form": {
+        "name": "Rejection Form",
+        "fields": [
+          {
+            "key": "rejection_reason",
+            "type": "string",
+            "required": true
+          }
+        ]
+      }
+    }
+  ],
+  "permissions": [
+    {
+      "slug": "submit_document"
+    },
+    {
+      "slug": "approve_document"
+    }
+  ],
+  "automations": [
+    {
+      "slug": "notify_on_approval",
+      "on": {
+        "event": "task.state.changed",
+        "to": "approved"
+      },
+      "effect": {
+        "type": "email.notify",
+        "params": {
+          "template": "approval_notification"
+        }
+      }
+    }
+  ]
+}
