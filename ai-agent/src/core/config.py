@@ -4,7 +4,7 @@ from typing import Optional
 
 class Settings(BaseSettings):
     # AI Agent Configuration
-    google_api_key: str = "AIzaSyCFl2hfT-ZoWK-jSsrDw_Q9YGLycKdRblA"
+    google_api_key: str
     ai_agent_port: int = 8001
     ai_model: str = "gemini-2.5-flash-lite"
 

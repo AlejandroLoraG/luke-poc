@@ -58,7 +58,7 @@ httpx==0.28.0
 ### Environment Configuration
 ```bash
 # AI Agent Configuration
-GOOGLE_API_KEY=AIzaSyCFl2hfT-ZoWK-jSsrDw_Q9YGLycKdRblA
+GOOGLE_API_KEY=your-google-gemini-api-key-here
 AI_AGENT_PORT=8001
 AI_MODEL=gemini-2.5-flash-lite
 

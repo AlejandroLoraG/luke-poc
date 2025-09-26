@@ -21,7 +21,7 @@ User Chat ↔ AI Agent (port 8001) ↔ MCP Server (port 8002) ↔ svc-builder (p
 ### **Prerequisites**
 - Python 3.10+
 - Docker and Docker Compose
-- Google API key for Gemini (included in code for PoC)
+- Google API key for Gemini (see setup instructions below)
 
 ### **1. Clone and Setup**
 ```bash
@@ -30,7 +30,16 @@ cd chat-agent
 cp .env.example .env
 ```
 
-### **2. Run with Docker Compose**
+### **2. Configure Google API Key**
+1. Get a Google Gemini API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. Edit the `.env` file and replace `your-google-gemini-api-key-here` with your actual API key:
+```bash
+GOOGLE_API_KEY=your-actual-api-key-here
+```
+
+**Security Note**: Never commit your actual API key to version control. The `.env` file is already included in `.gitignore`.
+
+### **3. Run with Docker Compose**
 ```bash
 # Build and start all services
 docker-compose up --build
@@ -39,7 +48,7 @@ docker-compose up --build
 docker-compose up -d --build
 ```
 
-### **3. Verify Services**
+### **4. Verify Services**
 ```bash
 # Check all services are running
 docker-compose ps
@@ -49,7 +58,7 @@ curl http://localhost:8000/api/v1/health  # svc-builder
 curl http://localhost:8001/api/v1/health  # AI Agent
 ```
 
-### **4. Test the System**
+### **5. Test the System**
 
 **Option A: Automated Conversation Testing (Recommended)**
 ```bash
