@@ -112,3 +112,13 @@ class ChatResponse(BaseModel):
     prompt_count: int
     mcp_tools_used: List[str] = []
     workflow_source: Optional[str] = None
+
+
+class StreamingChatChunk(BaseModel):
+    type: str  # "start", "chunk", "complete", "error"
+    content: Optional[str] = None  # For "chunk" type
+    conversation_id: Optional[str] = None
+    prompt_count: Optional[int] = None
+    mcp_tools_used: Optional[List[str]] = None
+    workflow_source: Optional[str] = None
+    error: Optional[str] = None  # For "error" type

@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Agent Streaming Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .chat-container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .message {
+            margin: 10px 0;
+            padding: 12px;
+            border-radius: 8px;
+        }
+        .user-message {
+            background-color: #007bff;
+            color: white;
+            text-align: right;
+        }
+        .ai-message {
+            background-color: #e9ecef;
+            color: #333;
+        }
+        .streaming-message {
+            background-color: #f8f9fa;
+            border: 1px dashed #6c757d;
+            color: #333;
+        }
+        .input-container {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        button {
+            padding: 12px 24px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .status {
+            margin: 10px 0;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .status.connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .status.streaming {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <h1>AI Agent Streaming Test</h1>
+        <div id="status" class="status">Ready to chat...</div>
+        <div id="messages"></div>
+        <div class="input-container">
+            <input type="text" id="messageInput" placeholder="Type your message here..." onkeypress="handleKeyPress(event)">
+            <button onclick="sendMessage()" id="sendButton">Send</button>
+        </div>
+    </div>
+
+    <script>
+        let conversationId = null;
+        let isStreaming = false;
+        let currentStreamingMessage = null;
+
+        function addMessage(content, isUser = false, isStreaming = false) {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user-message' : (isStreaming ? 'streaming-message' : 'ai-message')}`;
+            messageDiv.textContent = content;
+
+            if (isStreaming) {
+                messageDiv.id = 'streaming-message';
+            }
+
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            return messageDiv;
+        }
+
+        function updateStatus(message, type = '') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const sendButton = document.getElementById('sendButton');
+            const message = input.value.trim();
+
+            if (!message || isStreaming) return;
+
+            // Add user message to chat
+            addMessage(message, true);
+            input.value = '';
+
+            // Disable input during streaming
+            isStreaming = true;
+            sendButton.disabled = true;
+            input.disabled = true;
+            updateStatus('Streaming response...', 'streaming');
+
+            try {
+                const response = await fetch('http://localhost:8001/api/v1/chat/stream', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        conversation_id: conversationId
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                currentStreamingMessage = addMessage('', false, true);
+                let streamingContent = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+
+                                switch (data.type) {
+                                    case 'start':
+                                        conversationId = data.conversation_id;
+                                        updateStatus(`Started conversation: ${conversationId}`, 'connected');
+                                        break;
+
+                                    case 'chunk':
+                                        streamingContent = data.content || '';
+                                        currentStreamingMessage.textContent = streamingContent;
+                                        break;
+
+                                    case 'complete':
+                                        // Convert streaming message to final message
+                                        currentStreamingMessage.className = 'message ai-message';
+                                        currentStreamingMessage.removeAttribute('id');
+                                        updateStatus(`Message complete. Tools used: ${data.mcp_tools_used?.join(', ') || 'none'}`, 'connected');
+                                        break;
+
+                                    case 'error':
+                                        currentStreamingMessage.textContent = `Error: ${data.error}`;
+                                        currentStreamingMessage.className = 'message ai-message';
+                                        updateStatus('Error occurred', 'error');
+                                        break;
+                                }
+                            } catch (e) {
+                                console.error('Error parsing SSE data:', e);
+                            }
+                        }
+                    }
+                }
+
+            } catch (error) {
+                console.error('Error:', error);
+                addMessage(`Error: ${error.message}`, false);
+                updateStatus('Connection error', 'error');
+            } finally {
+                // Re-enable input
+                isStreaming = false;
+                sendButton.disabled = false;
+                input.disabled = false;
+                input.focus();
+                currentStreamingMessage = null;
+            }
+        }
+
+        // Focus input on load
+        window.onload = function() {
+            document.getElementById('messageInput').focus();
+        };
+    </script>
+</body>
+</html>
