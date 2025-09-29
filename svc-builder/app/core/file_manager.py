@@ -4,6 +4,10 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 from .settings import settings
 
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../../..'))
+from shared.schemas.workflow import WorkflowPartialUpdateRequest, WorkflowUpdateValidation
+
 
 class WorkflowFileManager:
     """Simple file-based workflow JSON manager for PoC."""
@@ -148,6 +152,89 @@ class WorkflowFileManager:
         """
         file_path = self._get_file_path(spec_id)
         return file_path.exists()
+
+    def partial_update_workflow(self, spec_id: str, partial_data: Dict[str, Any]) -> tuple[bool, WorkflowUpdateValidation]:
+        """
+        Perform partial update of workflow with validation and auto-fixes.
+
+        Args:
+            spec_id: Workflow specification ID
+            partial_data: Partial update data
+
+        Returns:
+            Tuple of (success: bool, validation: WorkflowUpdateValidation)
+        """
+        validation = WorkflowUpdateValidation(is_valid=False)
+
+        try:
+            # Load existing workflow
+            existing_data = self.load_workflow(spec_id)
+            if existing_data is None:
+                validation.errors.append(f"Workflow '{spec_id}' not found")
+                return False, validation
+
+            # Create a copy for updates
+            updated_data = existing_data.copy()
+
+            # Track what components are being affected
+            affected_components = []
+            auto_fixes = []
+
+            # Apply partial updates
+            for field, value in partial_data.items():
+                if value is not None:  # Only update non-None values
+                    if field in ['name', 'slug']:
+                        updated_data[field] = value
+                        affected_components.append(field)
+                    elif field == 'specVersion':
+                        updated_data['specVersion'] = value
+                        affected_components.append('version')
+                    elif field in ['states', 'actions', 'permissions', 'automations']:
+                        updated_data[field] = value
+                        affected_components.append(field)
+
+            # Validation and auto-fixes
+            if 'actions' in partial_data or 'states' in partial_data:
+                # Check for orphaned actions when states change
+                state_slugs = {state['slug'] for state in updated_data.get('states', [])}
+                valid_actions = []
+                orphaned_actions = []
+
+                for action in updated_data.get('actions', []):
+                    from_state = action.get('from')
+                    to_state = action.get('to')
+
+                    if from_state in state_slugs and to_state in state_slugs:
+                        valid_actions.append(action)
+                    else:
+                        orphaned_actions.append(action['slug'])
+
+                if orphaned_actions:
+                    updated_data['actions'] = valid_actions
+                    auto_fixes.append(f"Removed {len(orphaned_actions)} orphaned actions: {', '.join(orphaned_actions)}")
+
+            # Update spec version if any changes were made
+            if affected_components and 'specVersion' not in partial_data:
+                updated_data['specVersion'] = updated_data.get('specVersion', 1) + 1
+                auto_fixes.append("Incremented spec version")
+
+            # Save the updated workflow
+            success = self.save_workflow(spec_id, updated_data)
+
+            if success:
+                validation = WorkflowUpdateValidation(
+                    is_valid=True,
+                    affected_components=affected_components,
+                    auto_fixes_applied=auto_fixes
+                )
+            else:
+                validation.errors.append("Failed to save updated workflow")
+
+            return success, validation
+
+        except Exception as e:
+            validation.errors.append(f"Update failed: {str(e)}")
+            return False, validation
 
     def get_storage_stats(self) -> Dict[str, Any]:
         """

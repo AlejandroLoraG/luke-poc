@@ -122,3 +122,58 @@ class StreamingChatChunk(BaseModel):
     mcp_tools_used: Optional[List[str]] = None
     workflow_source: Optional[str] = None
     error: Optional[str] = None  # For "error" type
+
+
+class WorkflowPartialUpdateRequest(BaseModel):
+    """
+    Model for partial workflow updates. All fields are optional to support
+    selective updates of workflow components.
+    """
+    name: Optional[str] = None
+    slug: Optional[str] = None
+    states: Optional[List[WorkflowState]] = None
+    actions: Optional[List[WorkflowAction]] = None
+    permissions: Optional[List[WorkflowPermission]] = None
+    automations: Optional[List[WorkflowAutomation]] = None
+    spec_version: Optional[int] = Field(alias="specVersion", default=None)
+
+    class Config:
+        populate_by_name = True
+
+
+class WorkflowUpdateValidation(BaseModel):
+    """
+    Validation result for workflow updates with detailed feedback.
+    """
+    is_valid: bool = Field(alias="isValid")
+    errors: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    affected_components: List[str] = Field(alias="affectedComponents", default_factory=list)
+    auto_fixes_applied: List[str] = Field(alias="autoFixesApplied", default_factory=list)
+
+    class Config:
+        populate_by_name = True
+
+
+class WorkflowStructureUpdate(BaseModel):
+    """
+    Model for workflow structure updates (name, description, metadata).
+    """
+    name: Optional[str] = None
+    description: Optional[str] = None
+    slug: Optional[str] = None
+
+    class Config:
+        populate_by_name = True
+
+
+class WorkflowFlowUpdate(BaseModel):
+    """
+    Model for workflow flow updates (states and actions).
+    """
+    states: Optional[List[WorkflowState]] = None
+    actions: Optional[List[WorkflowAction]] = None
+    maintain_existing_transitions: bool = Field(alias="maintainExistingTransitions", default=True)
+
+    class Config:
+        populate_by_name = True

@@ -6,6 +6,7 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../../..'))
 from shared.schemas import WorkflowSpec
+from shared.schemas.workflow import WorkflowPartialUpdateRequest, WorkflowUpdateValidation
 from ..core.file_manager import file_manager
 
 router = APIRouter(prefix="/api/v1", tags=["workflows"])
@@ -114,6 +115,48 @@ async def update_workflow(spec_id: str, request: WorkflowUpdateRequest) -> Dict[
         "spec_id": spec_id,
         "name": workflow_data.get("name"),
         "version": workflow_data.get("specVersion", 1)
+    }
+
+
+@router.patch("/workflows/{spec_id}")
+async def partial_update_workflow(spec_id: str, request: WorkflowPartialUpdateRequest) -> Dict[str, Any]:
+    """
+    Partially update an existing workflow with validation and auto-fixes.
+    """
+    # Check if workflow exists
+    if not file_manager.workflow_exists(spec_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Workflow with spec_id '{spec_id}' not found"
+        )
+
+    # Convert request to dict, excluding None values
+    partial_data = request.model_dump(by_alias=True, exclude_none=True)
+
+    # Perform partial update with validation
+    success, validation = file_manager.partial_update_workflow(spec_id, partial_data)
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": "Partial update failed",
+                "errors": validation.errors,
+                "validation": validation.model_dump(by_alias=True)
+            }
+        )
+
+    # Load updated workflow for response
+    updated_workflow = file_manager.load_workflow(spec_id)
+
+    return {
+        "message": "Workflow partially updated successfully",
+        "spec_id": spec_id,
+        "name": updated_workflow.get("name"),
+        "version": updated_workflow.get("specVersion", 1),
+        "validation": validation.model_dump(by_alias=True),
+        "affected_components": validation.affected_components,
+        "auto_fixes_applied": validation.auto_fixes_applied
     }
 
 
