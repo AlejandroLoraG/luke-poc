@@ -1,5 +1,6 @@
 import json
 import os
+from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.google import GoogleModel
@@ -9,16 +10,58 @@ from pydantic_ai.mcp import MCPServerStreamableHTTP
 from ..core.config import settings
 
 
+@dataclass
 class WorkflowContext:
-    def __init__(
-        self,
-        workflow_spec: Optional[Dict[str, Any]] = None,
-        conversation_history: str = "",
-        user_context: Optional[Dict[str, Any]] = None
-    ):
-        self.workflow_spec = workflow_spec or {}
-        self.conversation_history = conversation_history
-        self.user_context = user_context or {}
+    """
+    Dependency context for Pydantic AI workflow agent.
+
+    Following Pydantic AI best practices for type-safe dependency injection.
+    See: https://ai.pydantic.dev/dependencies/
+
+    This dataclass carries conversation metadata and workflow state for the agent.
+    Note: Full conversation history is passed separately in the prompt, not here.
+    """
+    # Conversation metadata
+    conversation_id: str = ""
+    turn_count: int = 0
+
+    # Current workflow being discussed (optional)
+    workflow_spec: Optional[Dict[str, Any]] = None
+
+    # Workflows created/modified in this conversation session
+    # Format: [{"spec_id": "wf_xyz", "name": "Task Management", "action": "created"}]
+    conversation_workflows: List[Dict[str, str]] = field(default_factory=list)
+
+    # User identity (for future multi-tenancy)
+    tenant_id: str = "luke_123"
+    user_id: Optional[str] = None
+
+    def add_workflow_reference(self, spec_id: str, name: str, action: str = "discussed"):
+        """
+        Track a workflow mentioned in this conversation.
+
+        Args:
+            spec_id: Workflow specification ID
+            name: Business-friendly workflow name
+            action: What happened (created, modified, discussed)
+        """
+        self.conversation_workflows.append({
+            "spec_id": spec_id,
+            "name": name,
+            "action": action
+        })
+
+    def get_recent_workflows(self, limit: int = 5) -> List[Dict[str, str]]:
+        """
+        Get most recent workflow references.
+
+        Args:
+            limit: Maximum number of workflows to return
+
+        Returns:
+            List of recent workflow references
+        """
+        return self.conversation_workflows[-limit:] if self.conversation_workflows else []
 
 
 class WorkflowConversationAgent:
@@ -150,14 +193,20 @@ Remember: You are helping businesses design better processes, not teaching them 
         Have a conversation about the workflow using MCP tools.
         Returns: (response_text, list_of_tools_used)
         """
-        # Prepare the context
+        # Extract metadata from user_context
+        conversation_id = user_context.get("conversation_id", "") if user_context else ""
+        turn_count = user_context.get("turn_count", 0) if user_context else 0
+        conversation_workflows = user_context.get("conversation_workflows", []) if user_context else []
+
+        # Create properly typed context
         context = WorkflowContext(
+            conversation_id=conversation_id,
+            turn_count=turn_count,
             workflow_spec=workflow_spec,
-            conversation_history=conversation_history,
-            user_context=user_context or {}
+            conversation_workflows=conversation_workflows
         )
 
-        # Add conversation history to the prompt if available
+        # Build prompt with conversation history embedded
         full_prompt = message
         if conversation_history:
             full_prompt = f"Previous conversation:\n{conversation_history}\n\nCurrent question: {message}"
@@ -225,11 +274,17 @@ Remember: You are helping businesses design better processes, not teaching them 
         import hashlib
         import time
 
-        # Prepare the context
+        # Extract metadata from user_context
+        conversation_id = user_context.get("conversation_id", "") if user_context else ""
+        turn_count = user_context.get("turn_count", 0) if user_context else 0
+        conversation_workflows = user_context.get("conversation_workflows", []) if user_context else []
+
+        # Create properly typed context
         context = WorkflowContext(
+            conversation_id=conversation_id,
+            turn_count=turn_count,
             workflow_spec=workflow_spec,
-            conversation_history=conversation_history,
-            user_context=user_context or {}
+            conversation_workflows=conversation_workflows
         )
 
         # Build the prompt with context
