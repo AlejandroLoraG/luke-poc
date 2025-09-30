@@ -201,6 +201,39 @@ async def health_check() -> Dict[str, Any]:
         }
 
 
+@router.get("/telemetry/tokens")
+async def get_token_telemetry(
+    conversation_id: Optional[str] = None,
+    limit: int = 10
+) -> Dict[str, Any]:
+    """
+    Get token usage telemetry for monitoring context window consumption.
+
+    Query parameters:
+    - conversation_id: Filter by specific conversation (optional)
+    - limit: Maximum number of entries to return (default: 10)
+    """
+    try:
+        telemetry_entries = conversation_manager.get_token_telemetry(
+            conversation_id=conversation_id,
+            limit=limit
+        )
+
+        token_stats = conversation_manager.get_token_stats()
+
+        return {
+            "telemetry": telemetry_entries,
+            "summary": token_stats,
+            "metadata": {
+                "entries_returned": len(telemetry_entries),
+                "filtered_by_conversation": conversation_id is not None,
+                "conversation_id": conversation_id
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Telemetry error: {str(e)}")
+
+
 async def generate_sse_stream(
     message: str,
     conversation_id: str,

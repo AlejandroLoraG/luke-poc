@@ -7,6 +7,7 @@ from .models import ConversationTurn
 from .conversation_persistence import ConversationPersistence
 from .workflow_memory import WorkflowMemory
 from .conversation_summarizer import ConversationSummarizer
+from .token_counter import TokenCounter, TokenUsage
 
 
 @dataclass
@@ -61,7 +62,8 @@ class ConversationManager:
         enable_summarization: bool = True,
         summary_threshold: float = 0.70,
         preserve_recent: int = 5,
-        preserve_early: int = 2
+        preserve_early: int = 2,
+        context_window_limit: int = 32000
     ):
         """
         Initialize conversation manager with caching and persistence.
@@ -75,6 +77,7 @@ class ConversationManager:
             summary_threshold: Trigger summarization at this percentage (0.0-1.0)
             preserve_recent: Number of recent turns to keep unsummarized
             preserve_early: Number of early turns to keep for context
+            context_window_limit: Model context window limit in tokens
         """
         self.max_length = max_length
         self.cache_ttl = cache_ttl
@@ -100,6 +103,10 @@ class ConversationManager:
         self._workflow_cache_hits: int = 0
         self._workflow_cache_misses: int = 0
 
+        # Token usage telemetry
+        self._token_usage_history: List[Dict[str, Any]] = []
+        self._max_telemetry_entries: int = 100
+
         # Initialize persistence layer
         if enable_persistence:
             self.persistence = ConversationPersistence(storage_dir)
@@ -116,6 +123,9 @@ class ConversationManager:
             )
         else:
             self.summarizer = None
+
+        # Initialize token counter
+        self.token_counter = TokenCounter(context_window_limit=context_window_limit)
 
     def add_turn(
         self,
@@ -301,6 +311,9 @@ class ConversationManager:
         else:
             stats["summarization"] = {"enabled": False}
 
+        # Add token usage stats
+        stats["token_usage"] = self.get_token_stats()
+
         return stats
 
     def clear_cache(self, conversation_id: Optional[str] = None):
@@ -421,3 +434,147 @@ class ConversationManager:
         """
         memory = self.get_workflow_memory(conversation_id)
         return memory.format_for_context(limit)
+
+    def track_token_usage(
+        self,
+        conversation_id: str,
+        system_prompt: str,
+        workflow_spec: Optional[Dict[str, Any]] = None
+    ) -> TokenUsage:
+        """
+        Track token usage for a conversation and store telemetry.
+
+        Args:
+            conversation_id: Unique conversation identifier
+            system_prompt: Current system prompt text
+            workflow_spec: Optional workflow specification
+
+        Returns:
+            TokenUsage breakdown for this conversation
+        """
+        # Get conversation history
+        context_string = self.get_context_string(conversation_id)
+
+        # Calculate usage
+        usage = self.token_counter.calculate_usage(
+            system_prompt=system_prompt,
+            conversation_history=context_string,
+            workflow_spec=workflow_spec
+        )
+
+        # Store telemetry entry
+        telemetry_entry = {
+            "conversation_id": conversation_id,
+            "timestamp": datetime.now().isoformat(),
+            "total_tokens": usage.total,
+            "percentage": usage.percentage_of_limit,
+            "system_prompt_tokens": usage.system_prompt,
+            "conversation_tokens": usage.conversation_history,
+            "workflow_tokens": usage.workflow_context,
+            "turn_count": self.get_conversation_count(conversation_id),
+            "warning_threshold_exceeded": usage.is_warning_threshold(),
+            "critical_threshold_exceeded": usage.is_critical_threshold()
+        }
+
+        # Add to telemetry history (keep last N entries)
+        self._token_usage_history.append(telemetry_entry)
+        if len(self._token_usage_history) > self._max_telemetry_entries:
+            self._token_usage_history.pop(0)
+
+        return usage
+
+    def get_token_telemetry(
+        self,
+        conversation_id: Optional[str] = None,
+        limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """
+        Get token usage telemetry history.
+
+        Args:
+            conversation_id: Filter by conversation (None for all)
+            limit: Maximum entries to return
+
+        Returns:
+            List of telemetry entries (most recent first)
+        """
+        # Filter by conversation if specified
+        if conversation_id:
+            filtered = [
+                entry for entry in self._token_usage_history
+                if entry["conversation_id"] == conversation_id
+            ]
+        else:
+            filtered = self._token_usage_history
+
+        # Return most recent entries
+        return list(reversed(filtered[-limit:]))
+
+    def get_token_stats(self) -> Dict[str, Any]:
+        """
+        Get aggregated token usage statistics.
+
+        Returns:
+            Dictionary with token usage metrics
+        """
+        if not self._token_usage_history:
+            return {
+                "total_measurements": 0,
+                "average_usage_percent": 0.0,
+                "max_usage_percent": 0.0,
+                "warnings_triggered": 0,
+                "critical_alerts_triggered": 0,
+                "token_counter_config": self.token_counter.get_stats()
+            }
+
+        # Calculate statistics
+        total = len(self._token_usage_history)
+        percentages = [entry["percentage"] for entry in self._token_usage_history]
+        warnings = sum(1 for entry in self._token_usage_history if entry["warning_threshold_exceeded"])
+        criticals = sum(1 for entry in self._token_usage_history if entry["critical_threshold_exceeded"])
+
+        return {
+            "total_measurements": total,
+            "average_usage_percent": round(sum(percentages) / total, 2) if total > 0 else 0.0,
+            "max_usage_percent": round(max(percentages), 2) if percentages else 0.0,
+            "min_usage_percent": round(min(percentages), 2) if percentages else 0.0,
+            "warnings_triggered": warnings,
+            "critical_alerts_triggered": criticals,
+            "token_counter_config": self.token_counter.get_stats()
+        }
+
+    def check_token_warning(
+        self,
+        conversation_id: str,
+        system_prompt: str,
+        workflow_spec: Optional[Dict[str, Any]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Check if token usage exceeds warning thresholds.
+
+        Args:
+            conversation_id: Unique conversation identifier
+            system_prompt: Current system prompt text
+            workflow_spec: Optional workflow specification
+
+        Returns:
+            Warning dict if threshold exceeded, None otherwise
+        """
+        usage = self.track_token_usage(conversation_id, system_prompt, workflow_spec)
+
+        if usage.is_critical_threshold():
+            return {
+                "level": "critical",
+                "message": f"Token usage at {usage.percentage_of_limit}% of limit (>95%)",
+                "usage": usage,
+                "recommendation": "Immediate summarization or conversation reset recommended"
+            }
+        elif usage.is_warning_threshold():
+            return {
+                "level": "warning",
+                "message": f"Token usage at {usage.percentage_of_limit}% of limit (>80%)",
+                "usage": usage,
+                "recommendation": "Consider enabling summarization or managing conversation length"
+            }
+
+        return None
