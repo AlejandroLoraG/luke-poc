@@ -325,7 +325,7 @@ The system comes with 3 sample workflows:
 cd svc-builder
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-PYTHONPATH=/Users/alelo/Documents/Luke/chat-agent python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+PYTHONPATH={project directory} python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 **MCP Server:**
@@ -341,7 +341,7 @@ python src/server.py
 cd ai-agent
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-PYTHONPATH=/Users/alelo/Documents/Luke/chat-agent python -m uvicorn src.main:app --host 0.0.0.0 --port 8001 --reload
+PYTHONPATH={project directory} python -m uvicorn src.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
 ### **Integration Testing**
