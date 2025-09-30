@@ -2,12 +2,11 @@ from fastapi import APIRouter, HTTPException, status
 from typing import Dict, List, Any
 from pydantic import BaseModel
 
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../../..'))
 from shared.schemas import WorkflowSpec
 from shared.schemas.workflow import WorkflowPartialUpdateRequest, WorkflowUpdateValidation
+from shared.schemas import ErrorCategory, ErrorCodes
 from ..core.file_manager import file_manager
+from ..core.error_handlers import ErrorHandler
 
 router = APIRouter(prefix="/api/v1", tags=["workflows"])
 
@@ -72,12 +71,16 @@ async def get_workflow(spec_id: str) -> Dict[str, Any]:
     workflow_data = file_manager.load_workflow(spec_id)
 
     if workflow_data is None:
+        error_response = ErrorHandler.workflow_not_found_error(spec_id, "get_workflow")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Workflow with spec_id '{spec_id}' not found"
+            detail=error_response.model_dump()
         )
 
     return {
+        "success": True,
+        "operation": "get_workflow",
+        "service": "svc-builder",
         "spec_id": spec_id,
         "workflow_spec": workflow_data
     }

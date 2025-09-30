@@ -16,7 +16,21 @@ from .workflow import (
     ChatResponse,
 )
 
+from .errors import (
+    ErrorSeverity,
+    ErrorCategory,
+    ErrorDetail,
+    StandardErrorResponse,
+    ValidationErrorResponse,
+    NotFoundErrorResponse,
+    InternalErrorResponse,
+    ExternalServiceErrorResponse,
+    ERROR_CATEGORY_TO_HTTP_STATUS,
+    ErrorCodes,
+)
+
 __all__ = [
+    # Workflow schemas
     "WorkflowSpec",
     "WorkflowState",
     "WorkflowAction",
@@ -32,4 +46,16 @@ __all__ = [
     "WorkflowStateTransitionResponse",
     "ChatRequest",
     "ChatResponse",
+
+    # Error handling schemas
+    "ErrorSeverity",
+    "ErrorCategory",
+    "ErrorDetail",
+    "StandardErrorResponse",
+    "ValidationErrorResponse",
+    "NotFoundErrorResponse",
+    "InternalErrorResponse",
+    "ExternalServiceErrorResponse",
+    "ERROR_CATEGORY_TO_HTTP_STATUS",
+    "ErrorCodes",
 ]
