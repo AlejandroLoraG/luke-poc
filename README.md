@@ -376,6 +376,182 @@ pip install -r requirements.txt
 PYTHONPATH=/Users/alelo/Documents/Luke/chat-agent python -m uvicorn src.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
+### **Context Management Testing**
+
+The AI Agent includes a comprehensive context management system with 83 unit tests across 4 major phases.
+
+#### **🧪 Running Context Management Tests**
+
+```bash
+# Start services first
+docker-compose up -d --build
+
+# Copy tests to container (if not already done)
+docker cp ai-agent/tests chat-agent-poc-ai-agent-1:/app/
+
+# Run all context management tests
+docker exec chat-agent-poc-ai-agent-1 python -m pytest tests/ -v
+
+# Run tests by phase
+docker exec chat-agent-poc-ai-agent-1 python -m pytest tests/test_workflow_context.py -v        # Phase 1
+docker exec chat-agent-poc-ai-agent-1 python -m pytest tests/test_conversation_caching.py -v   # Phase 2
+docker exec chat-agent-poc-ai-agent-1 python -m pytest tests/test_conversation_persistence.py -v  # Phase 3
+docker exec chat-agent-poc-ai-agent-1 python -m pytest tests/test_workflow_memory.py -v        # Phase 4
+```
+
+#### **📋 Test Coverage by Phase**
+
+**Phase 1: Type-Safe WorkflowContext (11 tests)**
+- Tests the `@dataclass` pattern following Pydantic AI best practices
+- Validates type safety and immutable defaults
+- Tests workflow reference tracking methods
+- Coverage: WorkflowContext creation, field validation, reference management
+
+**Phase 2: Context & Workflow Caching (22 tests)**
+- Tests TTL-based caching with automatic invalidation
+- Validates cache hit/miss tracking and statistics
+- Tests workflow specification caching
+- Performance benchmarks (50-100x improvement for cached access)
+- Coverage: CachedContext, CachedWorkflow, cache statistics, invalidation
+
+**Phase 3: File-Based Persistence (21 tests)**
+- Tests atomic write operations (temp file + rename pattern)
+- Validates auto-save on conversation updates
+- Tests auto-load on conversation access
+- Performance benchmarks (<200% overhead, <1s load time)
+- Coverage: ConversationPersistence, integration with ConversationManager
+
+**Phase 4: Workflow Memory (29 tests)**
+- Tests structured note-taking pattern (Anthropic best practices)
+- Validates LRU tracking and automatic trimming
+- Tests alias generation and semantic search
+- Coverage: WorkflowMemory, WorkflowReference, search functionality
+
+#### **✅ Expected Test Results**
+
+```
+Phase 1: 11/11 PASSED - Type-safe WorkflowContext
+Phase 2: 22/22 PASSED - Context & Workflow Caching
+Phase 3: 21/21 PASSED - File-Based Persistence
+Phase 4: 29/29 PASSED - Workflow Memory
+───────────────────────────────────────────────
+Total:   83/83 PASSED (100% pass rate)
+```
+
+#### **📊 What Each Test Suite Validates**
+
+**test_workflow_context.py**
+- ✅ WorkflowContext creation with default values
+- ✅ Type-safe field initialization
+- ✅ add_workflow_reference() and get_recent_workflows() methods
+- ✅ Immutable defaults (prevents shared state bugs)
+- ✅ Dataclass field validation
+
+**test_conversation_caching.py**
+- ✅ Cache hit/miss on first and subsequent access
+- ✅ Cache invalidation on conversation updates
+- ✅ TTL expiration (5-minute default)
+- ✅ Multi-conversation cache independence
+- ✅ Workflow spec caching with TTL
+- ✅ Cache statistics tracking (hit rate, request counts)
+- ✅ Performance improvements (50-100x faster)
+
+**test_conversation_persistence.py**
+- ✅ Atomic write safety (no partial writes)
+- ✅ Save and load conversation turns
+- ✅ Auto-save on add_turn()
+- ✅ Auto-load on get_conversation_history()
+- ✅ Filesystem-safe ID sanitization
+- ✅ Graceful degradation on errors
+- ✅ Persistence statistics in health endpoint
+- ✅ Performance overhead (<200%)
+
+**test_workflow_memory.py**
+- ✅ Workflow reference creation and retrieval
+- ✅ LRU tracking with automatic trimming
+- ✅ Alias generation from workflow names
+- ✅ Semantic search by name, alias, tags
+- ✅ Filter by action type (created, modified, viewed)
+- ✅ Context formatting (<50 tokens per workflow)
+- ✅ Export/import for serialization
+- ✅ Integration with ConversationManager
+
+#### **🔍 Verifying Features via API**
+
+**Check Cache Statistics:**
+```bash
+curl http://localhost:8001/api/v1/health | python3 -m json.tool
+
+# Expected output includes:
+{
+  "cache_stats": {
+    "context_cache": {
+      "cache_hits": 0,
+      "cache_misses": 0,
+      "hit_rate_percent": 0.0,
+      "cached_conversations": 0
+    },
+    "workflow_cache": {
+      "cache_hits": 0,
+      "cache_misses": 0,
+      "hit_rate_percent": 0.0,
+      "cached_workflows": 0
+    },
+    "persistence": {
+      "total_conversations": 108,
+      "total_turns": 125,
+      "storage_size_bytes": 37898,
+      "storage_dir": "storage/conversations"
+    }
+  }
+}
+```
+
+**Test Conversation Persistence:**
+```bash
+# Create a conversation
+curl -X POST "http://localhost:8001/api/v1/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Hello, I need help with workflows"}'
+
+# Save the conversation_id from response
+# Restart the service
+docker-compose restart ai-agent
+
+# Verify conversation persisted
+curl http://localhost:8001/api/v1/conversations/{conversation_id}/history
+# Should return the conversation history even after restart
+```
+
+**Test Workflow Memory:**
+```bash
+# Access a workflow
+curl -X POST "http://localhost:8001/api/v1/chat" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "What states are available?",
+    "workflow_id": "wf_approval",
+    "conversation_id": "test-conv-123"
+  }'
+
+# The workflow is now tracked in conversation memory
+# Future messages in this conversation will have context about "wf_approval"
+```
+
+#### **📈 Performance Benchmarks**
+
+Run performance benchmarks included in test suites:
+
+```bash
+# Context caching performance (50-100x improvement)
+docker exec chat-agent-poc-ai-agent-1 python -m pytest \
+  tests/test_conversation_caching.py::TestCachePerformance -v
+
+# Persistence performance (<200% overhead)
+docker exec chat-agent-poc-ai-agent-1 python -m pytest \
+  tests/test_conversation_persistence.py::TestPersistencePerformance -v
+```
+
 ### **Integration Testing**
 ```bash
 # Run comprehensive integration tests
