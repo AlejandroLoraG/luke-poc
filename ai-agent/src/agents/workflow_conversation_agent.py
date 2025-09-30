@@ -8,6 +8,7 @@ from pydantic_ai.models.test import TestModel
 from pydantic_ai.mcp import MCPServerStreamableHTTP
 
 from ..core.config import settings
+from ..core.system_prompts import SystemPrompts, PromptMode
 
 
 @dataclass
@@ -65,8 +66,10 @@ class WorkflowContext:
 
 
 class WorkflowConversationAgent:
-    def __init__(self, test_mode: bool = False):
+    def __init__(self, test_mode: bool = False, use_modular_prompts: bool = True):
         self.test_mode = test_mode
+        self.use_modular_prompts = use_modular_prompts
+        self.current_mode: Optional[PromptMode] = None
 
         # Initialize the model
         if test_mode:
@@ -84,14 +87,80 @@ class WorkflowConversationAgent:
             toolsets = []
 
         # Create the agent with MCP toolsets
+        # Use general prompt as base when modular prompts enabled
+        base_instructions = (
+            SystemPrompts.get_prompt(PromptMode.GENERAL)
+            if use_modular_prompts
+            else self._get_legacy_system_instructions()
+        )
+
         self.agent = Agent(
             model=model,
             deps_type=WorkflowContext,
-            instructions=self._get_system_instructions(),
+            instructions=base_instructions,
             toolsets=toolsets
         )
 
-    def _get_system_instructions(self) -> str:
+    def _enhance_message_with_mode(
+        self,
+        message: str,
+        mode: PromptMode,
+        workflow_spec: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """
+        Enhance message with mode-specific guidance.
+
+        Args:
+            message: Original user message
+            mode: Inferred conversation mode
+            workflow_spec: Optional workflow context
+
+        Returns:
+            Enhanced message with mode guidance prepended
+        """
+        if not self.use_modular_prompts:
+            return message
+
+        # Get mode-specific prompt
+        mode_prompt = SystemPrompts.get_prompt(mode)
+
+        # Build enhanced message with mode context
+        enhanced = f"""[Mode: {mode.value.upper()}]
+
+{mode_prompt}
+
+---
+
+User message: {message}"""
+
+        return enhanced
+
+    def get_current_mode(self) -> Optional[PromptMode]:
+        """Get the currently active prompt mode."""
+        return self.current_mode
+
+    def get_mode_info(self) -> Dict[str, Any]:
+        """
+        Get information about current mode and token usage.
+
+        Returns:
+            Dictionary with mode info and stats
+        """
+        if not self.current_mode:
+            return {
+                "mode": "none",
+                "token_estimate": 0,
+                "token_reduction": 0.0
+            }
+
+        return {
+            "mode": self.current_mode.value,
+            "token_estimate": SystemPrompts.get_mode_stats().get(self.current_mode.value, 0),
+            "token_reduction_percent": SystemPrompts.get_token_reduction(self.current_mode),
+            "baseline_tokens": 2000
+        }
+
+    def _get_legacy_system_instructions(self) -> str:
         return """You are a business process consultant and workflow design expert. Your role is to help organizations create and optimize their business processes through natural conversation.
 
 FUNDAMENTAL IDENTITY:
@@ -206,6 +275,12 @@ Remember: You are helping businesses design better processes, not teaching them 
             conversation_workflows=conversation_workflows
         )
 
+        # Infer mode and enhance message if modular prompts enabled
+        if self.use_modular_prompts:
+            has_workflow = workflow_spec is not None
+            self.current_mode = SystemPrompts.infer_mode(message, has_workflow)
+            message = self._enhance_message_with_mode(message, self.current_mode, workflow_spec)
+
         # Build prompt with conversation history embedded
         full_prompt = message
         if conversation_history:
@@ -286,6 +361,12 @@ Remember: You are helping businesses design better processes, not teaching them 
             workflow_spec=workflow_spec,
             conversation_workflows=conversation_workflows
         )
+
+        # Infer mode and enhance message if modular prompts enabled
+        if self.use_modular_prompts:
+            has_workflow = workflow_spec is not None
+            self.current_mode = SystemPrompts.infer_mode(message, has_workflow)
+            message = self._enhance_message_with_mode(message, self.current_mode, workflow_spec)
 
         # Build the prompt with context
         full_prompt = self._build_contextual_prompt(message, conversation_history, workflow_spec)
