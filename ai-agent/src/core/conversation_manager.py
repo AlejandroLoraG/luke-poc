@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from .models import ConversationTurn
 from .conversation_persistence import ConversationPersistence
 from .workflow_memory import WorkflowMemory
+from .conversation_summarizer import ConversationSummarizer
 
 
 @dataclass
@@ -56,7 +57,11 @@ class ConversationManager:
         max_length: int = 15,
         cache_ttl: float = 300.0,
         enable_persistence: bool = True,
-        storage_dir: str = "storage/conversations"
+        storage_dir: str = "storage/conversations",
+        enable_summarization: bool = True,
+        summary_threshold: float = 0.70,
+        preserve_recent: int = 5,
+        preserve_early: int = 2
     ):
         """
         Initialize conversation manager with caching and persistence.
@@ -66,10 +71,15 @@ class ConversationManager:
             cache_ttl: Cache time-to-live in seconds (default: 5 minutes)
             enable_persistence: Enable file-based persistence
             storage_dir: Directory for conversation storage
+            enable_summarization: Enable progressive summarization
+            summary_threshold: Trigger summarization at this percentage (0.0-1.0)
+            preserve_recent: Number of recent turns to keep unsummarized
+            preserve_early: Number of early turns to keep for context
         """
         self.max_length = max_length
         self.cache_ttl = cache_ttl
         self.enable_persistence = enable_persistence
+        self.enable_summarization = enable_summarization
         self.conversations: Dict[str, List[ConversationTurn]] = {}
 
         # Track conversation creation times for persistence
@@ -95,6 +105,17 @@ class ConversationManager:
             self.persistence = ConversationPersistence(storage_dir)
         else:
             self.persistence = None
+
+        # Initialize summarization layer
+        if enable_summarization:
+            self.summarizer = ConversationSummarizer(
+                max_length=max_length,
+                summary_threshold=summary_threshold,
+                preserve_recent=preserve_recent,
+                preserve_early=preserve_early
+            )
+        else:
+            self.summarizer = None
 
     def add_turn(
         self,
@@ -163,9 +184,10 @@ class ConversationManager:
 
     def get_context_string(self, conversation_id: str) -> str:
         """
-        Get context string for a conversation with caching.
+        Get context string for a conversation with caching and summarization.
 
-        Returns cached context if valid, otherwise rebuilds and caches.
+        Returns cached context if valid, otherwise rebuilds with optional
+        summarization and caches the result.
         """
         # Check cache first
         current_turn_count = self.get_conversation_count(conversation_id)
@@ -183,8 +205,27 @@ class ConversationManager:
         if not history:
             return ""
 
+        # Apply summarization if enabled and threshold reached
+        summary_string = ""
+        turns_to_format = history
+
+        if self.enable_summarization and self.summarizer:
+            if self.summarizer.should_summarize(len(history)):
+                summary_string, turns_to_format = self.summarizer.summarize_conversation(
+                    conversation_id,
+                    history,
+                    llm_summarize_func=None  # Use simple fallback for now
+                )
+
+        # Build context string
         context_parts = []
-        for turn in history:
+
+        # Add summary if available
+        if summary_string:
+            context_parts.append(summary_string)
+
+        # Add unsummarized turns
+        for turn in turns_to_format:
             context_parts.append(f"User: {turn.user_message}")
             context_parts.append(f"Agent: {turn.agent_response}")
 
@@ -253,6 +294,12 @@ class ConversationManager:
             stats["persistence"] = self.persistence.get_stats()
         else:
             stats["persistence"] = {"enabled": False}
+
+        # Add summarization stats if enabled
+        if self.enable_summarization and self.summarizer:
+            stats["summarization"] = self.summarizer.get_stats()
+        else:
+            stats["summarization"] = {"enabled": False}
 
         return stats
 
