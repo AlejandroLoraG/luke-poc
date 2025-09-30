@@ -7,7 +7,11 @@ This document provides comprehensive technical documentation for the Chat Agent 
 ### **High-Level Architecture**
 ```
 Frontend App ↔ AI Agent (8001) ↔ MCP Server (8002) ↔ svc-builder (8000) ↔ JSON Storage
+                      ↕              ↕                    ↕
+                    Shared Components (Schemas, Config, Logging, Errors)
 ```
+
+> **Note**: The system now features a clean, shared component architecture with centralized schemas, configuration management, structured logging, and standardized error handling across all services.
 
 ### **Service Responsibilities**
 
@@ -22,7 +26,7 @@ Frontend App ↔ AI Agent (8001) ↔ MCP Server (8002) ↔ svc-builder (8000) �
 - Model Context Protocol server using FastMCP
 - Tool orchestration for workflow operations
 - Bridge between AI Agent and svc-builder
-- 14 specialized workflow management tools
+- 6 organized tool modules (post-refactor cleanup)
 
 **svc-builder (Port 8000)**
 - Workflow JSON DSL management

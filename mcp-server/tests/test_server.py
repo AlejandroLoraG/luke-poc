@@ -3,10 +3,6 @@ from unittest.mock import AsyncMock, patch
 import asyncio
 
 # Import the MCP server components
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-
 from src.svc_client import SvcBuilderClient
 from src.config import settings
 

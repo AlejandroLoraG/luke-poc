@@ -1,10 +1,11 @@
 import uvicorn
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from .core.settings import settings
 from .core.sample_loader import load_sample_workflows
+from .core.error_handlers import global_exception_handler, http_exception_handler
 from .api.router import router
 
 
@@ -44,6 +45,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add error handlers
+app.add_exception_handler(Exception, global_exception_handler)
+app.add_exception_handler(HTTPException, http_exception_handler)
 
 # Include routers
 app.include_router(router)

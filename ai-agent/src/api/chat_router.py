@@ -5,9 +5,6 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from typing import Dict, Any, Optional, AsyncGenerator
 
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 from shared.schemas import ChatRequest, ChatResponse
 from ..core.config import settings
 from ..core.conversation_manager import ConversationManager

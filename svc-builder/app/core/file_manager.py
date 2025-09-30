@@ -4,8 +4,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 from .settings import settings
 
-import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../../..'))
 from shared.schemas.workflow import WorkflowPartialUpdateRequest, WorkflowUpdateValidation
 
 
