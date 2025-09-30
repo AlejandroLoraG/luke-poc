@@ -60,6 +60,16 @@ async def chat_with_agent(request: ChatRequest) -> ChatResponse:
             else:
                 workflow_spec_dict = request.workflow_spec
             workflow_source = "provided_spec"
+
+            # Track in workflow memory
+            if workflow_spec_dict and "specId" in workflow_spec_dict:
+                conversation_manager.track_workflow(
+                    conversation_id,
+                    spec_id=workflow_spec_dict["specId"],
+                    name=workflow_spec_dict.get("name", "Unnamed Workflow"),
+                    action="discussed"
+                )
+
         elif request.workflow_id:
             # Try cache first
             workflow_spec_dict = conversation_manager.get_workflow_cached(request.workflow_id)
@@ -78,11 +88,26 @@ async def chat_with_agent(request: ChatRequest) -> ChatResponse:
                 conversation_manager.cache_workflow(request.workflow_id, workflow_spec_dict)
                 workflow_source = f"stored_workflow:{request.workflow_id}"
 
+            # Track in workflow memory
+            conversation_manager.track_workflow(
+                conversation_id,
+                spec_id=request.workflow_id,
+                name=workflow_spec_dict.get("name", "Unnamed Workflow"),
+                action="viewed"
+            )
+
+        # Get recent workflows for context
+        workflow_memory = conversation_manager.get_workflow_memory(conversation_id)
+        recent_workflows_refs = [
+            {"spec_id": ref.spec_id, "name": ref.name, "action": ref.action}
+            for ref in workflow_memory.get_recent_workflows(limit=5)
+        ]
+
         # Prepare user context with metadata for WorkflowContext
         user_context = {
             "conversation_id": conversation_id,
             "turn_count": turn_count,
-            "conversation_workflows": []  # Will be populated in Phase 4 with WorkflowMemory
+            "conversation_workflows": recent_workflows_refs
         }
 
         # Have the conversation
@@ -271,6 +296,16 @@ async def stream_chat_with_agent(request: ChatRequest) -> StreamingResponse:
             else:
                 workflow_spec_dict = request.workflow_spec
             workflow_source = "provided_spec"
+
+            # Track in workflow memory
+            if workflow_spec_dict and "specId" in workflow_spec_dict:
+                conversation_manager.track_workflow(
+                    conversation_id,
+                    spec_id=workflow_spec_dict["specId"],
+                    name=workflow_spec_dict.get("name", "Unnamed Workflow"),
+                    action="discussed"
+                )
+
         elif request.workflow_id:
             # Try cache first
             workflow_spec_dict = conversation_manager.get_workflow_cached(request.workflow_id)
@@ -288,6 +323,14 @@ async def stream_chat_with_agent(request: ChatRequest) -> StreamingResponse:
                 workflow_spec_dict = stored_workflow
                 conversation_manager.cache_workflow(request.workflow_id, workflow_spec_dict)
                 workflow_source = f"stored_workflow:{request.workflow_id}"
+
+            # Track in workflow memory
+            conversation_manager.track_workflow(
+                conversation_id,
+                spec_id=request.workflow_id,
+                name=workflow_spec_dict.get("name", "Unnamed Workflow"),
+                action="viewed"
+            )
 
         # Create the streaming generator
         stream_generator = generate_sse_stream(

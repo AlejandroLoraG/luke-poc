@@ -1,9 +1,10 @@
 import time
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Optional, Any, Set
 from datetime import datetime
 from dataclasses import dataclass
 
 from .conversation_persistence import ConversationPersistence
+from .workflow_memory import WorkflowMemory
 
 
 @dataclass
@@ -80,6 +81,9 @@ class ConversationManager:
 
         # Track conversation creation times for persistence
         self._conversation_created_at: Dict[str, datetime] = {}
+
+        # Workflow memory for each conversation
+        self._workflow_memories: Dict[str, WorkflowMemory] = {}
 
         # Context string cache
         self._context_cache: Dict[str, CachedContext] = {}
@@ -325,3 +329,55 @@ class ConversationManager:
                 del self._workflow_cache[workflow_id]
         else:
             self._workflow_cache.clear()
+
+    def get_workflow_memory(self, conversation_id: str) -> WorkflowMemory:
+        """
+        Get or create workflow memory for a conversation.
+
+        Args:
+            conversation_id: Unique conversation identifier
+
+        Returns:
+            WorkflowMemory instance for this conversation
+        """
+        if conversation_id not in self._workflow_memories:
+            self._workflow_memories[conversation_id] = WorkflowMemory()
+
+        return self._workflow_memories[conversation_id]
+
+    def track_workflow(
+        self,
+        conversation_id: str,
+        spec_id: str,
+        name: str,
+        action: str = "discussed",
+        aliases: Optional[List[str]] = None,
+        tags: Optional[Set[str]] = None
+    ):
+        """
+        Track a workflow in conversation memory.
+
+        Args:
+            conversation_id: Unique conversation identifier
+            spec_id: Workflow specification ID
+            name: Business-friendly workflow name
+            action: What happened (created, modified, discussed, viewed)
+            aliases: Alternative names for search
+            tags: Categorization tags
+        """
+        memory = self.get_workflow_memory(conversation_id)
+        memory.add_workflow(spec_id, name, action, aliases, tags)
+
+    def get_workflow_context(self, conversation_id: str, limit: int = 5) -> str:
+        """
+        Get formatted workflow context for conversation.
+
+        Args:
+            conversation_id: Unique conversation identifier
+            limit: Maximum workflows to include
+
+        Returns:
+            Formatted workflow context string
+        """
+        memory = self.get_workflow_memory(conversation_id)
+        return memory.format_for_context(limit)
