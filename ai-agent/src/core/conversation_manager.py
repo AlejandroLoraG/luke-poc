@@ -3,6 +3,8 @@ from typing import Dict, List, Tuple, Optional, Any
 from datetime import datetime
 from dataclasses import dataclass
 
+from .conversation_persistence import ConversationPersistence
+
 
 @dataclass
 class ConversationTurn:
@@ -55,17 +57,29 @@ class CachedWorkflow:
 
 
 class ConversationManager:
-    def __init__(self, max_length: int = 15, cache_ttl: float = 300.0):
+    def __init__(
+        self,
+        max_length: int = 15,
+        cache_ttl: float = 300.0,
+        enable_persistence: bool = True,
+        storage_dir: str = "storage/conversations"
+    ):
         """
-        Initialize conversation manager with caching.
+        Initialize conversation manager with caching and persistence.
 
         Args:
             max_length: Maximum conversation turns to retain
             cache_ttl: Cache time-to-live in seconds (default: 5 minutes)
+            enable_persistence: Enable file-based persistence
+            storage_dir: Directory for conversation storage
         """
         self.max_length = max_length
         self.cache_ttl = cache_ttl
+        self.enable_persistence = enable_persistence
         self.conversations: Dict[str, List[ConversationTurn]] = {}
+
+        # Track conversation creation times for persistence
+        self._conversation_created_at: Dict[str, datetime] = {}
 
         # Context string cache
         self._context_cache: Dict[str, CachedContext] = {}
@@ -79,6 +93,12 @@ class ConversationManager:
         self._workflow_cache_hits: int = 0
         self._workflow_cache_misses: int = 0
 
+        # Initialize persistence layer
+        if enable_persistence:
+            self.persistence = ConversationPersistence(storage_dir)
+        else:
+            self.persistence = None
+
     def add_turn(
         self,
         conversation_id: str,
@@ -87,13 +107,14 @@ class ConversationManager:
         mcp_tools_used: List[str] = None
     ) -> int:
         """
-        Add a conversation turn and invalidate cache.
+        Add a conversation turn, invalidate cache, and persist to disk.
         """
         if mcp_tools_used is None:
             mcp_tools_used = []
 
         if conversation_id not in self.conversations:
             self.conversations[conversation_id] = []
+            self._conversation_created_at[conversation_id] = datetime.now()
 
         turn = ConversationTurn(
             user_message=user_message,
@@ -112,10 +133,36 @@ class ConversationManager:
         if conversation_id in self._context_cache:
             del self._context_cache[conversation_id]
 
+        # Persist to disk (graceful degradation on failure)
+        if self.enable_persistence and self.persistence:
+            created_at = self._conversation_created_at.get(conversation_id)
+            self.persistence.save_conversation(
+                conversation_id,
+                self.conversations[conversation_id],
+                created_at
+            )
+
         return len(self.conversations[conversation_id])
 
     def get_conversation_history(self, conversation_id: str) -> List[ConversationTurn]:
-        return self.conversations.get(conversation_id, [])
+        """
+        Get conversation history with automatic loading from persistence.
+        """
+        # Return from memory if available
+        if conversation_id in self.conversations:
+            return self.conversations[conversation_id]
+
+        # Try to load from persistence
+        if self.enable_persistence and self.persistence:
+            turns = self.persistence.load_conversation(conversation_id)
+            if turns:
+                self.conversations[conversation_id] = turns
+                # Set created_at from first turn timestamp
+                if turns:
+                    self._conversation_created_at[conversation_id] = turns[0].timestamp
+                return turns
+
+        return []
 
     def get_context_string(self, conversation_id: str) -> str:
         """
@@ -159,20 +206,27 @@ class ConversationManager:
         return len(self.conversations.get(conversation_id, []))
 
     def clear_conversation(self, conversation_id: str):
-        """Clear conversation history and invalidate cache."""
+        """Clear conversation history, cache, and persistent storage."""
         if conversation_id in self.conversations:
             del self.conversations[conversation_id]
+
+        if conversation_id in self._conversation_created_at:
+            del self._conversation_created_at[conversation_id]
 
         # Invalidate cache for this conversation
         if conversation_id in self._context_cache:
             del self._context_cache[conversation_id]
 
+        # Delete from persistence
+        if self.enable_persistence and self.persistence:
+            self.persistence.delete_conversation(conversation_id)
+
     def get_cache_stats(self) -> Dict[str, Any]:
         """
-        Get cache performance statistics.
+        Get cache performance statistics and persistence info.
 
         Returns:
-            Dictionary with cache metrics including hit rate
+            Dictionary with cache metrics and persistence statistics
         """
         total_requests = self._cache_hits + self._cache_misses
         hit_rate = (self._cache_hits / total_requests * 100) if total_requests > 0 else 0.0
@@ -180,7 +234,7 @@ class ConversationManager:
         total_workflow_requests = self._workflow_cache_hits + self._workflow_cache_misses
         workflow_hit_rate = (self._workflow_cache_hits / total_workflow_requests * 100) if total_workflow_requests > 0 else 0.0
 
-        return {
+        stats = {
             "context_cache": {
                 "cache_hits": self._cache_hits,
                 "cache_misses": self._cache_misses,
@@ -196,6 +250,14 @@ class ConversationManager:
                 "cached_workflows": len(self._workflow_cache)
             }
         }
+
+        # Add persistence stats if enabled
+        if self.enable_persistence and self.persistence:
+            stats["persistence"] = self.persistence.get_stats()
+        else:
+            stats["persistence"] = {"enabled": False}
+
+        return stats
 
     def clear_cache(self, conversation_id: Optional[str] = None):
         """
