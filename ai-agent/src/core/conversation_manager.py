@@ -3,16 +3,9 @@ from typing import Dict, List, Tuple, Optional, Any, Set
 from datetime import datetime
 from dataclasses import dataclass
 
+from .models import ConversationTurn
 from .conversation_persistence import ConversationPersistence
 from .workflow_memory import WorkflowMemory
-
-
-@dataclass
-class ConversationTurn:
-    user_message: str
-    agent_response: str
-    timestamp: datetime
-    mcp_tools_used: List[str]
 
 
 @dataclass

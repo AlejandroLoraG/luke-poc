@@ -19,7 +19,8 @@ from datetime import datetime
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '../src'))
 
-from core.conversation_manager import ConversationManager, ConversationTurn
+from core.models import ConversationTurn
+from core.conversation_manager import ConversationManager
 from core.conversation_persistence import ConversationPersistence
 
 

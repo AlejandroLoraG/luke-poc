@@ -12,7 +12,7 @@ from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass, asdict
 
-from .conversation_manager import ConversationTurn
+from .models import ConversationTurn
 
 
 @dataclass
