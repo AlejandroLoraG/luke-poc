@@ -94,9 +94,11 @@ class ConversationPersistence:
 
             # Atomic write: write to temp file, then rename
             file_path = self._get_conversation_path(conversation_id)
+            # Use sanitized ID for temp file prefix
+            safe_id = "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in conversation_id)
             temp_fd, temp_path = tempfile.mkstemp(
                 dir=self.storage_dir,
-                prefix=f".tmp_{conversation_id}_",
+                prefix=f".tmp_{safe_id}_",
                 suffix=".json"
             )
 
