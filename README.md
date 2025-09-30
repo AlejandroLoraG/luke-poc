@@ -2,19 +2,84 @@
 
 A Proof-of-Concept system demonstrating conversational AI for workflow creation and management through natural language. Users can create, modify, and understand business workflows using plain English conversations that automatically generate technical workflow specifications.
 
-## 🏗️ Architecture Overview
+## 🏗️ System Architecture
 
-This PoC consists of three main components that work together to enable natural language interaction with workflow JSON DSL objects:
+This PoC features a clean microservices architecture with standardized protocols, shared components, and comprehensive error handling:
 
+```mermaid
+graph TB
+    subgraph "User Layer"
+        USER[👤 User Interface<br/>Web/cURL/REST Clients]
+    end
+
+    subgraph "AI Agent Service (8001)"
+        AI[🤖 AI Agent<br/>FastAPI + Pydantic AI<br/>Google Gemini Integration]
+    end
+
+    subgraph "MCP Server (8002)"
+        MCP[🌉 MCP Server<br/>FastMCP Protocol<br/>6 Modular Tool Sets]
+    end
+
+    subgraph "svc-builder Service (8000)"
+        SVC[📁 svc-builder<br/>JSON DSL Management<br/>File CRUD Operations]
+    end
+
+    subgraph "Storage"
+        STORAGE[(📄 JSON Workflow Files<br/>/storage/workflows/)]
+    end
+
+    subgraph "Shared Components"
+        SHARED[🔧 Shared Modules<br/>Schemas • Config • Logging<br/>Error Handling Standards]
+    end
+
+    subgraph "External APIs"
+        GEMINI[🧠 Google Gemini API]
+    end
+
+    %% Main Flow
+    USER -->|HTTP REST| AI
+    AI -->|HTTP Client| MCP
+    MCP -->|HTTP Client| SVC
+    SVC -->|File I/O| STORAGE
+    AI -->|HTTPS| GEMINI
+
+    %% Shared Dependencies
+    SHARED -.->|Import| AI
+    SHARED -.->|Import| MCP
+    SHARED -.->|Import| SVC
+
+    %% Styling
+    classDef userLayer fill:#e3f2fd
+    classDef services fill:#f1f8e6
+    classDef storage fill:#fff8e1
+    classDef shared fill:#fce4ec
+    classDef external fill:#e8f5e8
+
+    class USER userLayer
+    class AI,MCP,SVC services
+    class STORAGE storage
+    class SHARED shared
+    class GEMINI external
 ```
-User Chat ↔ AI Agent (port 8001) ↔ MCP Server (port 8002) ↔ svc-builder (port 8000) ↔ JSON Files
-```
 
-### **Component Responsibilities:**
+### **Service Responsibilities**
 
-1. **🤖 AI Agent** - Conversational interface using Pydantic AI with Gemini
-2. **🌉 MCP Server** - Protocol bridge with workflow management tools
-3. **📁 svc-builder** - JSON DSL file management and CRUD operations
+1. **🤖 AI Agent (8001)** - Conversational interface with business persona, Pydantic AI + Gemini integration
+2. **🌉 MCP Server (8002)** - Model Context Protocol bridge with 6 organized tool modules
+3. **📁 svc-builder (8000)** - JSON workflow file management with validation and persistence
+
+### **Recent Architecture Improvements** ✨
+
+The system has undergone comprehensive code cleanup and modernization:
+
+- **🏗️ Modular Architecture**: Split monolithic MCP server (1169 lines → 6 organized modules)
+- **🔧 Shared Components**: Centralized configuration, logging, and error handling
+- **📦 Proper Package Structure**: Eliminated `sys.path.append()` hacks with `pyproject.toml`
+- **🛡️ Standardized Error Handling**: Consistent error responses across all services
+- **📊 Structured Logging**: JSON logging framework for observability
+- **⚙️ Configuration Management**: Unified settings with validation and environment support
+
+> See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed technical documentation with comprehensive Mermaid diagrams.
 
 ## 🚀 Quick Start
 
@@ -294,45 +359,61 @@ cd mcp-server && pytest tests/
 
 ```
 chat-agent/
-├── shared/                          # Shared Pydantic models
-│   └── schemas/
-│       ├── workflow.py              # WorkflowSpec and related models
-│       └── __init__.py
-├── ai-agent/                        # Conversational AI Agent
+├── shared/                          # 🔧 Shared Components (NEW!)
+│   ├── schemas/
+│   │   ├── workflow.py              # WorkflowSpec and related models
+│   │   ├── errors.py                # StandardErrorResponse schemas
+│   │   └── __init__.py              # Unified exports
+│   ├── config.py                    # BaseServiceSettings & utilities
+│   ├── logging_config.py            # Structured JSON logging framework
+│   └── __init__.py
+├── ai-agent/                        # 🤖 Conversational AI Agent
 │   ├── src/
-│   │   ├── agents/                  # Pydantic AI agents
-│   │   ├── api/                     # FastAPI routes
-│   │   ├── core/                    # Configuration and utilities
+│   │   ├── agents/                  # Pydantic AI conversation agents
+│   │   ├── api/                     # FastAPI routers (chat, workflow)
+│   │   ├── core/                    # Config, streaming, error handling
+│   │   ├── tools/                   # MCP client integration
+│   │   ├── data/                    # In-memory storage & conversation mgmt
 │   │   └── main.py
 │   ├── tests/
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   └── README.md
-├── mcp-server/                      # Model Context Protocol Server
+├── mcp-server/                      # 🌉 MCP Protocol Server (REFACTORED!)
 │   ├── src/
-│   │   ├── server.py                # FastMCP server with tools
+│   │   ├── tools/                   # 6 Organized Tool Modules:
+│   │   │   ├── core_operations.py   # CRUD, validation, listing (125 lines)
+│   │   │   ├── workflow_creation.py # Template & custom creation (296 lines)
+│   │   │   ├── workflow_updates.py  # Structure & permission updates (307 lines)
+│   │   │   ├── workflow_discovery.py# Search & exploration (213 lines)
+│   │   │   ├── state_management.py  # State & action management (183 lines)
+│   │   │   └── health_monitoring.py # System health checks (35 lines)
+│   │   ├── server.py                # FastMCP server registration (91 lines)
 │   │   ├── svc_client.py            # HTTP client for svc-builder
-│   │   └── config.py
+│   │   └── config.py                # Standardized configuration
 │   ├── tests/
 │   ├── requirements.txt
 │   └── Dockerfile
-├── svc-builder/                     # Workflow JSON DSL Management
+├── svc-builder/                     # 📁 JSON DSL File Management
 │   ├── app/
-│   │   ├── api/                     # FastAPI routes
-│   │   ├── core/                    # File management and config
+│   │   ├── api/                     # FastAPI workflow router
+│   │   ├── core/                    # File manager, error handlers, settings
 │   │   └── main.py
-│   ├── storage/workflows/           # JSON file storage
+│   ├── storage/workflows/           # JSON file storage directory
 │   ├── tests/
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── tests/
 │   └── integration_test.py          # End-to-end tests
+├── pyproject.toml                   # 📦 Python package configuration (NEW!)
 ├── test_conversations.sh            # Automated persona testing script
 ├── run_tests.sh                     # Interactive test runner
 ├── docker-compose.yml               # Full system orchestration
-├── .env.example                     # Environment configuration
-├── AI-AGENT.md                      # AI Agent detailed plan
+├── .env.example                     # Environment configuration template
+├── ARCHITECTURE.md                  # 📊 Technical architecture with Mermaid diagrams (NEW!)
+├── AI-AGENT.md                      # AI Agent implementation details
 ├── RESEARCH.md                      # Real-time communication research
+├── CLAUDE.md                        # Claude Code development guidance
 └── README.md                        # This file
 ```
 

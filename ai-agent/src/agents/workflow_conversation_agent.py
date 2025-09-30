@@ -19,6 +19,8 @@ class WorkflowContext:
         self.workflow_spec = workflow_spec or {}
         self.conversation_history = conversation_history
         self.user_context = user_context or {}
+        # Track workflows mentioned or created in this conversation
+        self.conversation_workflows = user_context.get("conversation_workflows", [])
 
 
 class WorkflowConversationAgent:
@@ -119,11 +121,73 @@ You can quickly design these common workflow types:
 - **Request Handling**: Submit → Process → Fulfill
 
 MCP TOOL USAGE:
-- For NEW workflows: Use 'create_workflow_from_description' or 'create_workflow_from_template' tools
-- For EXISTING workflows: Use 'get_workflow', 'update_workflow_actions', 'add_workflow_state' tools
+
+🔍 FINDING WORKFLOWS - MULTI-PASS SEARCH STRATEGY:
+CRITICAL: NEVER give up after first search failure! Always try multiple strategies:
+
+**Primary Search Strategy:**
+1. Use 'find_workflow_by_any_means' tool FIRST - it's intelligent and tries multiple approaches
+2. If no exact match, use partial matches from the results
+3. If still no match, try 'get_conversation_workflows' for recent context
+
+**Fallback Search Strategy (if primary fails):**
+1. Try 'list_workflows' and manually search through results
+2. Look for template-based matches (task → task management workflows)
+3. Search for similar names or partial matches
+4. Check recent workflows that might match user intent
+
+**NEVER say "workflow not found" without trying at least 3 different search approaches!**
+
+📝 WORKFLOW OPERATIONS:
+- For NEW workflows: Use 'create_workflow_from_description' or 'create_workflow_from_template'
+- For UPDATING workflows: Use the enhanced user-intent tools:
+  * 'update_workflow_structure' - Rename workflows, update descriptions
+  * 'modify_workflow_flow' - Change states, update process flow
+  * 'update_workflow_permissions' - Modify access controls
+  * 'configure_workflow_forms' - Set up data collection forms
+- For FINDING workflows: Use 'find_workflow_by_any_means' (intelligent multi-strategy search)
+- For CONTEXT: Use 'get_conversation_workflows' to see recently created/modified workflows
 - For TEMPLATES: Use 'get_workflow_templates' to show available templates
-- NEVER use 'create_workflow' - always use the new business-friendly creation tools
-- Always present results in business terms, never expose technical details
+
+🎯 INTELLIGENT WORKFLOW DISCOVERY:
+**When users refer to workflows by name or want to modify them:**
+
+✅ CORRECT APPROACH:
+```
+User: "I want to modify my task management workflow"
+AI Process:
+1. Call 'find_workflow_by_any_means' with "task management"
+2. If found → proceed with modification
+3. If not found → try 'get_conversation_workflows' for recent workflows
+4. If still not found → try 'list_workflows' and search for "task" related workflows
+5. Present options: "I found these task-related workflows: [list]. Which one would you like to modify?"
+```
+
+❌ WRONG APPROACH:
+```
+User: "I want to modify my task management workflow"
+AI: "I couldn't find that workflow. Please provide the workflow ID."
+```
+
+🔧 ERROR RECOVERY PATTERNS:
+If initial search fails:
+1. **Try variations**: "task management" → try "task", "management", "My Task Management"
+2. **Use context**: Check recent workflows from conversation
+3. **Template matching**: If they mention "task", show all task-related workflows
+4. **Offer alternatives**: "I found these similar workflows: [list]. Did you mean one of these?"
+5. **Last resort**: Offer to create new workflow if none exist
+
+🎯 WORKFLOW CREATION CONTEXT:
+When creating workflows, immediately provide discoverable information:
+- "I've created your '[name]' workflow. You can modify it by referring to '[name]' or '[template type]' workflow."
+- Remember workflow names within the conversation context
+- Proactively mention workflow aliases and search terms
+
+❌ NEVER ask users for workflow IDs or technical specifications
+✅ ALWAYS search intelligently using multiple strategies
+✅ ALWAYS provide alternatives when exact matches aren't found
+✅ ALWAYS maintain conversation context about created workflows
+- Present results in business terms, never expose technical details
 - If tool calls fail, handle gracefully without mentioning technical errors
 
 CONVERSATION FLOW EXAMPLE:
@@ -167,38 +231,59 @@ Remember: You are helping businesses design better processes, not teaching them 
             workflow_summary = f"Current workflow: {workflow_spec.get('name', 'Unknown')} (ID: {workflow_spec.get('specId', 'unknown')})"
             full_prompt = f"{workflow_summary}\n\n{full_prompt}"
 
-        # Run the agent with MCP tools
-        try:
-            if self.test_mode:
-                # In test mode, provide a simple response
-                response_text = "Test mode response: I understand your workflow question."
-                tools_used = []
-            else:
-                # Use the MCP-enabled agent
-                async with self.agent:
-                    result = await self.agent.run(full_prompt, deps=context)
+        # Run the agent with MCP tools with retry logic
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            try:
+                if self.test_mode:
+                    # In test mode, provide a simple response
+                    response_text = "Test mode response: I understand your workflow question."
+                    tools_used = []
+                else:
+                    # Use the MCP-enabled agent
+                    async with self.agent:
+                        result = await self.agent.run(full_prompt, deps=context)
 
-                    # Get the response text from the result
-                    if hasattr(result, 'data'):
-                        response_text = result.data
-                    elif hasattr(result, 'message'):
-                        response_text = result.message
-                    elif hasattr(result, 'output'):
-                        response_text = result.output
+                        # Get the response text from the result
+                        if hasattr(result, 'data'):
+                            response_text = result.data
+                        elif hasattr(result, 'message'):
+                            response_text = result.message
+                        elif hasattr(result, 'output'):
+                            response_text = result.output
+                        else:
+                            response_text = str(result)
+
+                        # Handle any wrapper formats if needed
+                        if hasattr(response_text, 'strip'):
+                            response_text = response_text.strip()
+
+                        # Extract tools used (MCP tools are tracked automatically)
+                        tools_used = getattr(result, 'tools_used', [])
+
+                return response_text, tools_used
+
+            except Exception as e:
+                error_str = str(e)
+
+                # Check if it's a retryable API error
+                if attempt < max_retries and any(keyword in error_str.lower() for keyword in
+                    ['500', 'internal', 'overloaded', 'retry', 'temporarily', 'unavailable']):
+
+                    # Wait before retry (exponential backoff)
+                    import asyncio
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                else:
+                    # Final attempt failed or non-retryable error
+                    if '500' in error_str or 'INTERNAL' in error_str:
+                        return ("I'm experiencing temporary connectivity issues with the AI service. "
+                               "The workflow tools are still functional. Please try again in a moment, "
+                               "or let me know what specific workflow operation you'd like to perform."), []
                     else:
-                        response_text = str(result)
+                        return f"I encountered an error: {error_str}", []
 
-                    # Handle any wrapper formats if needed
-                    if hasattr(response_text, 'strip'):
-                        response_text = response_text.strip()
-
-                    # Extract tools used (MCP tools are tracked automatically)
-                    tools_used = getattr(result, 'tools_used', [])
-
-            return response_text, tools_used
-
-        except Exception as e:
-            return f"I encountered an error: {str(e)}", []
+        return "Service temporarily unavailable. Please try again.", []
 
     async def chat_stream(
         self,
@@ -267,6 +352,14 @@ Remember: You are helping businesses design better processes, not teaching them 
                 f"(ID: {workflow_spec.get('specId', 'unknown')})"
             )
             full_prompt = f"{workflow_summary}\n\n{full_prompt}"
+
+        # Add conversation context reminder
+        context_reminder = (
+            "\nREMINDER: If user refers to workflows by name and they can't be found, "
+            "use 'find_workflow_by_any_means' tool with multiple search strategies. "
+            "Never give up after first search failure. Try partial matches, template matches, and recent workflows."
+        )
+        full_prompt = f"{full_prompt}{context_reminder}"
 
         return full_prompt
 

@@ -2,9 +2,6 @@ from fastapi import APIRouter, HTTPException, Query
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
 
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 from shared.schemas import WorkflowSpec
 from ..core.workflow_storage import workflow_storage
 

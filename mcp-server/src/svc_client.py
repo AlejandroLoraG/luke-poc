@@ -100,6 +100,33 @@ class SvcBuilderClient:
 
             return response.json()
 
+    async def partial_update_workflow(self, spec_id: str, partial_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Partially update a workflow in svc-builder.
+
+        Args:
+            spec_id: Workflow specification ID
+            partial_data: Partial update data
+
+        Returns:
+            Update result from svc-builder with validation details
+        """
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.patch(
+                f"{self.base_url}/api/v1/workflows/{spec_id}",
+                json=partial_data
+            )
+
+            if response.status_code == 404:
+                raise Exception(f"Workflow '{spec_id}' not found")
+            elif response.status_code == 400:
+                error_data = response.json()
+                raise Exception(f"Validation failed: {error_data}")
+            elif response.status_code != 200:
+                raise Exception(f"Failed to partially update workflow: {response.status_code} - {response.text}")
+
+            return response.json()
+
     async def delete_workflow(self, spec_id: str) -> Dict[str, Any]:
         """
         Delete a workflow from svc-builder.

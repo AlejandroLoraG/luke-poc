@@ -66,19 +66,22 @@ open test_streaming.html
 cd svc-builder
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-PYTHONPATH=/Users/alelo/Documents/Luke/chat-agent python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+pip install -e ../  # Install shared package
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 # MCP Server (port 8002)
 cd mcp-server
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
+pip install -e ../  # Install shared package
 python src/server.py
 
 # AI Agent (port 8001)
 cd ai-agent
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-PYTHONPATH=/Users/alelo/Documents/Luke/chat-agent python -m uvicorn src.main:app --host 0.0.0.0 --port 8001 --reload
+pip install -e ../  # Install shared package
+python -m uvicorn src.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
 ## Architecture
@@ -90,12 +93,21 @@ User Chat ↔ AI Agent (port 8001) ↔ MCP Server (port 8002) ↔ svc-builder (p
 
 **Key Components:**
 1. **AI Agent** - Conversational interface using Pydantic AI with Gemini
-2. **MCP Server** - Model Context Protocol bridge with workflow management tools
+2. **MCP Server** - Model Context Protocol bridge with 6 organized tool modules
 3. **svc-builder** - JSON DSL file management and CRUD operations
+4. **Shared Components** - Centralized schemas, config, logging, and error handling
 
-### Shared Models
-- All services use shared Pydantic models from `shared/schemas/workflow.py`
-- Critical models: `WorkflowSpec`, `WorkflowState`, `WorkflowAction`, `ChatRequest`, `ChatResponse`
+### Shared Component Architecture
+- **Shared Package**: `shared/` module installed as editable package via `pyproject.toml`
+- **Pydantic Schemas**: `shared/schemas/` - WorkflowSpec, error responses, chat models
+- **Configuration**: `shared/config.py` - BaseServiceSettings, service constants, validation
+- **Logging**: `shared/logging_config.py` - Structured JSON logging framework
+- **Error Handling**: `shared/schemas/errors.py` - StandardErrorResponse patterns
+
+### Critical Models
+- `WorkflowSpec`, `WorkflowState`, `WorkflowAction` - Core workflow structures
+- `ChatRequest`, `ChatResponse` - Conversation API contracts
+- `StandardErrorResponse` - Unified error handling across services
 - Models handle both camelCase (external API) and snake_case (internal Python) via aliases
 
 ### Key Design Patterns
@@ -103,6 +115,25 @@ User Chat ↔ AI Agent (port 8001) ↔ MCP Server (port 8002) ↔ svc-builder (p
 - **Auto-Generation**: Technical IDs, slugs, and permissions generated from business descriptions
 - **MCP Tool Integration**: AI uses standardized tools via FastMCP for workflow operations
 - **Conversation Context**: Maintains chat history and workflow context across interactions
+
+### Recent Code Cleanup Achievements ✨
+The codebase has undergone comprehensive modernization:
+
+1. **Modular MCP Server**: Split monolithic 1169-line server into 6 organized tool modules:
+   - `core_operations.py` (125 lines) - CRUD, validation, listing
+   - `workflow_creation.py` (296 lines) - Template and custom creation
+   - `workflow_updates.py` (307 lines) - Structure and permission updates
+   - `workflow_discovery.py` (213 lines) - Search and exploration
+   - `state_management.py` (183 lines) - State and action management
+   - `health_monitoring.py` (35 lines) - System health checks
+
+2. **Proper Package Structure**: Eliminated `sys.path.append()` hacks with `pyproject.toml`
+
+3. **Shared Component Framework**: Centralized configuration, logging, and error handling
+
+4. **Standardized Error Responses**: Consistent error patterns with business-friendly conversion
+
+5. **Structured Logging**: JSON logging framework for observability and debugging
 
 ### Service Communication
 - **ai-agent** connects to **mcp-server** at `http://mcp-server:8002`
