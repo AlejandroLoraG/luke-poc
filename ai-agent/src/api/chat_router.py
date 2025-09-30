@@ -39,8 +39,9 @@ async def chat_with_agent(request: ChatRequest) -> ChatResponse:
         # Generate conversation ID if not provided
         conversation_id = request.conversation_id or str(uuid.uuid4())
 
-        # Get conversation history
+        # Get conversation history and metadata
         history = conversation_manager.get_context_string(conversation_id)
+        turn_count = conversation_manager.get_conversation_count(conversation_id)
 
         # Get the workflow agent
         agent = await get_workflow_agent()
@@ -56,23 +57,62 @@ async def chat_with_agent(request: ChatRequest) -> ChatResponse:
             else:
                 workflow_spec_dict = request.workflow_spec
             workflow_source = "provided_spec"
-        elif request.workflow_id:
-            # Load workflow from storage
-            stored_workflow = workflow_storage.get_workflow(request.workflow_id)
-            if stored_workflow is None:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Workflow with ID '{request.workflow_id}' not found in storage"
+
+            # Track in workflow memory
+            if workflow_spec_dict and "specId" in workflow_spec_dict:
+                conversation_manager.track_workflow(
+                    conversation_id,
+                    spec_id=workflow_spec_dict["specId"],
+                    name=workflow_spec_dict.get("name", "Unnamed Workflow"),
+                    action="discussed"
                 )
-            workflow_spec_dict = stored_workflow
-            workflow_source = f"stored_workflow:{request.workflow_id}"
+
+        elif request.workflow_id:
+            # Try cache first
+            workflow_spec_dict = conversation_manager.get_workflow_cached(request.workflow_id)
+
+            if workflow_spec_dict:
+                workflow_source = f"cached_workflow:{request.workflow_id}"
+            else:
+                # Load workflow from storage and cache it
+                stored_workflow = workflow_storage.get_workflow(request.workflow_id)
+                if stored_workflow is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Workflow with ID '{request.workflow_id}' not found in storage"
+                    )
+                workflow_spec_dict = stored_workflow
+                conversation_manager.cache_workflow(request.workflow_id, workflow_spec_dict)
+                workflow_source = f"stored_workflow:{request.workflow_id}"
+
+            # Track in workflow memory
+            conversation_manager.track_workflow(
+                conversation_id,
+                spec_id=request.workflow_id,
+                name=workflow_spec_dict.get("name", "Unnamed Workflow"),
+                action="viewed"
+            )
+
+        # Get recent workflows for context
+        workflow_memory = conversation_manager.get_workflow_memory(conversation_id)
+        recent_workflows_refs = [
+            {"spec_id": ref.spec_id, "name": ref.name, "action": ref.action}
+            for ref in workflow_memory.get_recent_workflows(limit=5)
+        ]
+
+        # Prepare user context with metadata for WorkflowContext
+        user_context = {
+            "conversation_id": conversation_id,
+            "turn_count": turn_count,
+            "conversation_workflows": recent_workflows_refs
+        }
 
         # Have the conversation
         response_text, tools_used = await agent.chat(
             message=request.message,
             workflow_spec=workflow_spec_dict,
             conversation_history=history,
-            user_context={}  # Could be populated from request headers/auth
+            user_context=user_context
         )
 
         # Store the conversation turn
@@ -136,6 +176,9 @@ async def health_check() -> Dict[str, Any]:
         mcp_server_url = settings.mcp_server_url
         mcp_connected = True  # Assume connected, will be false if agent creation fails
 
+        # Get cache statistics
+        cache_stats = conversation_manager.get_cache_stats()
+
         return {
             "status": "healthy",
             "mcp_server_url": mcp_server_url,
@@ -143,7 +186,8 @@ async def health_check() -> Dict[str, Any]:
             "max_conversation_length": settings.max_conversation_length,
             "model": settings.ai_model,
             "workflow_storage": workflow_stats,
-            "test_mode": settings.environment == "test"
+            "test_mode": settings.environment == "test",
+            "cache_stats": cache_stats
         }
     except Exception as e:
         return {
@@ -152,6 +196,39 @@ async def health_check() -> Dict[str, Any]:
             "mcp_server_connected": False,
             "workflow_storage": {"total_workflows": 0, "error": "storage_unavailable"}
         }
+
+
+@router.get("/telemetry/tokens")
+async def get_token_telemetry(
+    conversation_id: Optional[str] = None,
+    limit: int = 10
+) -> Dict[str, Any]:
+    """
+    Get token usage telemetry for monitoring context window consumption.
+
+    Query parameters:
+    - conversation_id: Filter by specific conversation (optional)
+    - limit: Maximum number of entries to return (default: 10)
+    """
+    try:
+        telemetry_entries = conversation_manager.get_token_telemetry(
+            conversation_id=conversation_id,
+            limit=limit
+        )
+
+        token_stats = conversation_manager.get_token_stats()
+
+        return {
+            "telemetry": telemetry_entries,
+            "summary": token_stats,
+            "metadata": {
+                "entries_returned": len(telemetry_entries),
+                "filtered_by_conversation": conversation_id is not None,
+                "conversation_id": conversation_id
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Telemetry error: {str(e)}")
 
 
 async def generate_sse_stream(
@@ -249,16 +326,41 @@ async def stream_chat_with_agent(request: ChatRequest) -> StreamingResponse:
             else:
                 workflow_spec_dict = request.workflow_spec
             workflow_source = "provided_spec"
-        elif request.workflow_id:
-            # Load workflow from storage
-            stored_workflow = workflow_storage.get_workflow(request.workflow_id)
-            if stored_workflow is None:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Workflow with ID '{request.workflow_id}' not found in storage"
+
+            # Track in workflow memory
+            if workflow_spec_dict and "specId" in workflow_spec_dict:
+                conversation_manager.track_workflow(
+                    conversation_id,
+                    spec_id=workflow_spec_dict["specId"],
+                    name=workflow_spec_dict.get("name", "Unnamed Workflow"),
+                    action="discussed"
                 )
-            workflow_spec_dict = stored_workflow
-            workflow_source = f"stored_workflow:{request.workflow_id}"
+
+        elif request.workflow_id:
+            # Try cache first
+            workflow_spec_dict = conversation_manager.get_workflow_cached(request.workflow_id)
+
+            if workflow_spec_dict:
+                workflow_source = f"cached_workflow:{request.workflow_id}"
+            else:
+                # Load workflow from storage and cache it
+                stored_workflow = workflow_storage.get_workflow(request.workflow_id)
+                if stored_workflow is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Workflow with ID '{request.workflow_id}' not found in storage"
+                    )
+                workflow_spec_dict = stored_workflow
+                conversation_manager.cache_workflow(request.workflow_id, workflow_spec_dict)
+                workflow_source = f"stored_workflow:{request.workflow_id}"
+
+            # Track in workflow memory
+            conversation_manager.track_workflow(
+                conversation_id,
+                spec_id=request.workflow_id,
+                name=workflow_spec_dict.get("name", "Unnamed Workflow"),
+                action="viewed"
+            )
 
         # Create the streaming generator
         stream_generator = generate_sse_stream(
