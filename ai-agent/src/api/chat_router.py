@@ -104,7 +104,8 @@ async def chat_with_agent(request: ChatRequest) -> ChatResponse:
         user_context = {
             "conversation_id": conversation_id,
             "turn_count": turn_count,
-            "conversation_workflows": recent_workflows_refs
+            "conversation_workflows": recent_workflows_refs,
+            "language": request.language.value  # Extract language from request
         }
 
         # Have the conversation
@@ -128,7 +129,8 @@ async def chat_with_agent(request: ChatRequest) -> ChatResponse:
             conversation_id=conversation_id,
             prompt_count=prompt_count,
             mcp_tools_used=tools_used,
-            workflow_source=workflow_source
+            workflow_source=workflow_source,
+            language=request.language.value  # Return language used
         )
 
     except HTTPException:
@@ -235,7 +237,8 @@ async def generate_sse_stream(
     message: str,
     conversation_id: str,
     workflow_spec_dict: Optional[Dict[str, Any]] = None,
-    workflow_source: Optional[str] = None
+    workflow_source: Optional[str] = None,
+    language: str = "en"
 ) -> AsyncGenerator[str, None]:
     """
     Generate Server-Sent Events stream for chat responses using the streaming service.
@@ -260,7 +263,7 @@ async def generate_sse_stream(
             workflow_spec=workflow_spec_dict,
             workflow_source=workflow_source,
             conversation_history=history,
-            user_context={}
+            user_context={"language": language}
         ):
             # Track response data for conversation management
             if '"type": "chunk"' in sse_event:
@@ -367,7 +370,8 @@ async def stream_chat_with_agent(request: ChatRequest) -> StreamingResponse:
             message=request.message,
             conversation_id=conversation_id,
             workflow_spec_dict=workflow_spec_dict,
-            workflow_source=workflow_source
+            workflow_source=workflow_source,
+            language=request.language.value
         )
 
         return StreamingResponse(

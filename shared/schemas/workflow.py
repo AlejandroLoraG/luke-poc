@@ -17,6 +17,12 @@ class FieldType(str, Enum):
     SELECT = "select"
 
 
+class Language(str, Enum):
+    """Supported languages for AI agent responses."""
+    ENGLISH = "en"
+    SPANISH = "es"
+
+
 class WorkflowField(BaseModel):
     key: str
     type: FieldType
@@ -104,6 +110,7 @@ class ChatRequest(BaseModel):
     workflow_spec: Optional[WorkflowSpec] = None
     workflow_id: Optional[str] = None
     conversation_id: Optional[str] = None
+    language: Language = Language.ENGLISH
 
 
 class ChatResponse(BaseModel):
@@ -112,6 +119,7 @@ class ChatResponse(BaseModel):
     prompt_count: int
     mcp_tools_used: List[str] = []
     workflow_source: Optional[str] = None
+    language: str
 
 
 class StreamingChatChunk(BaseModel):

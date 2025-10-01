@@ -37,6 +37,9 @@ class WorkflowContext:
     tenant_id: str = "luke_123"
     user_id: Optional[str] = None
 
+    # Language preference for AI responses
+    language: str = "en"  # ISO 639-1 code: "en" or "es"
+
     def add_workflow_reference(self, spec_id: str, name: str, action: str = "discussed"):
         """
         Track a workflow mentioned in this conversation.
@@ -100,6 +103,26 @@ class WorkflowConversationAgent:
             instructions=base_instructions,
             toolsets=toolsets
         )
+
+        # Register dynamic language instruction (Pydantic AI best practice)
+        @self.agent.system_prompt
+        def add_language_instruction(ctx: RunContext[WorkflowContext]) -> str:
+            """
+            Dynamic instruction that adds language-specific guidance.
+
+            Following Pydantic AI best practices:
+            - Uses @agent.system_prompt decorator for dynamic instructions
+            - Accesses dependencies via RunContext type-safe injection
+            - Re-evaluated on each run for fresh context
+
+            Args:
+                ctx: RunContext with WorkflowContext dependency
+
+            Returns:
+                Language instruction string (empty for English)
+            """
+            from ..core.language_instructions import get_language_instruction
+            return get_language_instruction(ctx.deps.language)
 
     def _enhance_message_with_mode(
         self,
@@ -328,13 +351,15 @@ Remember: You are helping businesses design better processes, not teaching them 
         conversation_id = user_context.get("conversation_id", "") if user_context else ""
         turn_count = user_context.get("turn_count", 0) if user_context else 0
         conversation_workflows = user_context.get("conversation_workflows", []) if user_context else []
+        language = user_context.get("language", "en") if user_context else "en"
 
         # Create properly typed context
         context = WorkflowContext(
             conversation_id=conversation_id,
             turn_count=turn_count,
             workflow_spec=workflow_spec,
-            conversation_workflows=conversation_workflows
+            conversation_workflows=conversation_workflows,
+            language=language
         )
 
         # Infer mode and enhance message if modular prompts enabled
@@ -436,13 +461,15 @@ Remember: You are helping businesses design better processes, not teaching them 
         conversation_id = user_context.get("conversation_id", "") if user_context else ""
         turn_count = user_context.get("turn_count", 0) if user_context else 0
         conversation_workflows = user_context.get("conversation_workflows", []) if user_context else []
+        language = user_context.get("language", "en") if user_context else "en"
 
         # Create properly typed context
         context = WorkflowContext(
             conversation_id=conversation_id,
             turn_count=turn_count,
             workflow_spec=workflow_spec,
-            conversation_workflows=conversation_workflows
+            conversation_workflows=conversation_workflows,
+            language=language
         )
 
         # Infer mode and enhance message if modular prompts enabled
