@@ -380,9 +380,7 @@ async def stream_chat_with_agent(request: ChatRequest) -> StreamingResponse:
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Headers": "*",
-                "Access-Control-Allow-Methods": "*"
+                "X-Accel-Buffering": "no"  # Disable proxy buffering for SSE
             }
         )
 
