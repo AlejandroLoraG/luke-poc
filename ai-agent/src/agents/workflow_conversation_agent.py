@@ -1,5 +1,6 @@
 import json
 import os
+import logging
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional
 from pydantic_ai import Agent, RunContext
@@ -9,6 +10,9 @@ from pydantic_ai.mcp import MCPServerStreamableHTTP
 
 from ..core.config import settings
 from ..core.system_prompts import SystemPrompts, PromptMode
+from ..core.debug_client import DebugWorkflowClient
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -73,6 +77,14 @@ class WorkflowConversationAgent:
         self.test_mode = test_mode
         self.use_modular_prompts = use_modular_prompts
         self.current_mode: Optional[PromptMode] = None
+
+        # Initialize debug mode client if enabled
+        self.debug_mode = settings.debug_mode
+        self.debug_client: Optional[DebugWorkflowClient] = None
+        if self.debug_mode and not test_mode:
+            self.debug_client = DebugWorkflowClient(settings.svc_builder_url)
+            logger.warning(f"⚠️  DEBUG MODE ENABLED - Using direct API calls to {settings.svc_builder_url}")
+            logger.warning("⚠️  This bypasses MCP layer for diagnostic purposes")
 
         # Initialize the model
         if test_mode:
@@ -182,6 +194,48 @@ User message: {message}"""
             "token_reduction_percent": SystemPrompts.get_token_reduction(self.current_mode),
             "baseline_tokens": 2000
         }
+
+    def _extract_tools_from_messages(self, result) -> List[str]:
+        """
+        Extract tool names from Pydantic AI message history.
+
+        Pydantic AI tracks tool calls in the message history as ToolCallPart objects.
+        This method extracts the tool names from those parts.
+
+        Args:
+            result: Pydantic AI RunResult object
+
+        Returns:
+            List of unique tool names that were called
+        """
+        tools = []
+        try:
+            # Get new messages from this run
+            if not hasattr(result, 'new_messages'):
+                logger.warning(f"Result object has no 'new_messages' method. Type: {type(result)}")
+                return []
+
+            messages = result.new_messages()
+
+            for message in messages:
+                # Check if message has parts (ModelResponse messages do)
+                if hasattr(message, 'parts'):
+                    for part in message.parts:
+                        # ToolCallPart has a tool_name attribute
+                        if hasattr(part, 'tool_name'):
+                            tool_name = part.tool_name
+                            tools.append(tool_name)
+                            logger.debug(f"Extracted tool call: {tool_name}")
+
+        except Exception as e:
+            logger.error(f"Error extracting tools from messages: {e}", exc_info=True)
+
+        # Remove duplicates and return
+        unique_tools = list(set(tools))
+        if unique_tools:
+            logger.info(f"🔧 Tools used in this interaction: {unique_tools}")
+
+        return unique_tools
 
     def _get_legacy_system_instructions(self) -> str:
         return """You are a business process consultant and workflow design expert. Your role is to help organizations create and optimize their business processes through natural conversation.
@@ -405,8 +459,8 @@ Remember: You are helping businesses design better processes, not teaching them 
                         if hasattr(response_text, 'strip'):
                             response_text = response_text.strip()
 
-                        # Extract tools used (MCP tools are tracked automatically)
-                        tools_used = getattr(result, 'tools_used', [])
+                        # Extract tools used from message history
+                        tools_used = self._extract_tools_from_messages(result)
 
                 return response_text, tools_used
 
@@ -559,7 +613,7 @@ Remember: You are helping businesses design better processes, not teaching them 
 
                         # Generate sequence ID and extract tools
                         sequence_id = f"seq_{sequence_counter}_{int(time.time() * 1000)}"
-                        tools_used = getattr(result, 'tools_used', [])
+                        tools_used = self._extract_tools_from_messages(result)
 
                         yield text_delta, tools_used, sequence_id
 
@@ -591,13 +645,13 @@ Remember: You are helping businesses design better processes, not teaching them 
                 if new_content:
                     sequence_counter += 1
                     sequence_id = f"seq_{sequence_counter}_{int(time.time() * 1000)}"
-                    tools_used = getattr(result, 'tools_used', [])
+                    tools_used = self._extract_tools_from_messages(result)
                     yield new_content, tools_used, sequence_id
                 previous_content = current_content
             else:
                 # First chunk or non-incremental content
                 sequence_counter += 1
                 sequence_id = f"seq_{sequence_counter}_{int(time.time() * 1000)}"
-                tools_used = getattr(result, 'tools_used', [])
+                tools_used = self._extract_tools_from_messages(result)
                 yield current_content, tools_used, sequence_id
                 previous_content = current_content

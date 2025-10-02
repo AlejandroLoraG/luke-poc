@@ -38,6 +38,16 @@ class Settings(BaseServiceSettings):
         description="Maximum number of messages to keep in conversation history"
     )
 
+    # Debug Configuration
+    debug_mode: bool = Field(
+        default=False,
+        description="Enable debug mode with direct svc-builder API calls for diagnostics"
+    )
+    svc_builder_url: str = Field(
+        default="http://svc-builder:8000",
+        description="Direct svc-builder API URL for debug mode"
+    )
+
     @validator("google_api_key")
     def validate_google_api_key(cls, v):
         """Validate that Google API key is provided."""
