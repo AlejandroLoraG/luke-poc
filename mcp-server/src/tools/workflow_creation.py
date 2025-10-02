@@ -9,6 +9,7 @@ from high-level business requirements.
 from typing import Dict, Any, List, Optional
 from svc_client import svc_client
 from shared.schemas import StandardErrorResponse, ErrorCategory, ErrorSeverity, ErrorCodes
+from schemas.tool_parameters import WorkflowCustomization
 
 
 def create_success_response(data: Dict[str, Any], operation: str) -> Dict[str, Any]:
@@ -143,7 +144,7 @@ async def create_workflow_from_description(
 async def create_workflow_from_template(
     workflow_name: str,
     template_type: str,
-    customizations: Optional[Dict[str, Any]] = None
+    customizations: Optional[WorkflowCustomization] = None
 ) -> Dict[str, Any]:
     """
     Create a workflow from a predefined template.
@@ -151,7 +152,7 @@ async def create_workflow_from_template(
     Args:
         workflow_name: Business name for the workflow
         template_type: Type of template (approval, incident, task, document_review, request_handling)
-        customizations: Optional customizations to the template
+        customizations: Optional customizations to the template (Pydantic model for Gemini compatibility)
 
     Returns:
         Created workflow details
@@ -218,10 +219,27 @@ async def create_workflow_from_template(
 
         template = templates[normalized_template_type]
 
-        # Apply customizations if provided
-        states = customizations.get("states", template["states"]) if customizations else template["states"]
-        actions = customizations.get("actions", template["actions"]) if customizations else template["actions"]
-        description = customizations.get("description", template["description"]) if customizations else template["description"]
+        # Apply customizations if provided (using Pydantic model for Gemini compatibility)
+        states = template["states"].copy()
+        actions = template["actions"].copy()
+        description = template["description"]
+
+        if customizations:
+            # Override description if provided
+            if customizations.description_override:
+                description = customizations.description_override
+
+            # Add additional states
+            if customizations.additional_states:
+                states.extend(customizations.additional_states)
+
+            # Add additional actions
+            if customizations.additional_actions:
+                actions.extend(customizations.additional_actions)
+
+            # Remove skipped states
+            if customizations.skip_states:
+                states = [s for s in states if s not in customizations.skip_states]
 
         # Use the existing create_workflow_from_description tool
         result = await create_workflow_from_description(

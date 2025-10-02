@@ -9,6 +9,7 @@ form configuration.
 from typing import Dict, Any, List, Optional
 from svc_client import svc_client
 from shared.schemas import StandardErrorResponse, ErrorCategory, ErrorSeverity, ErrorCodes
+from schemas.tool_parameters import PermissionUpdate, FormField
 
 
 def create_success_response(data: Dict[str, Any], operation: str) -> Dict[str, Any]:
@@ -182,7 +183,7 @@ async def modify_workflow_flow(
 
 async def update_workflow_permissions(
     workflow_id: str,
-    permission_updates: List[Dict[str, str]]
+    permission_updates: List[PermissionUpdate]
 ) -> Dict[str, Any]:
     """
     Update workflow permissions and access control settings.
@@ -192,8 +193,7 @@ async def update_workflow_permissions(
 
     Args:
         workflow_id: The workflow to modify
-        permission_updates: List of permission objects with 'slug' and 'description'
-                          e.g., [{"slug": "approve_doc", "description": "Can approve documents"}]
+        permission_updates: List of PermissionUpdate objects (Pydantic models for Gemini compatibility)
 
     Returns:
         Success/failure status with permission update details
@@ -206,21 +206,12 @@ async def update_workflow_permissions(
                 "workflow_id": workflow_id
             }
 
-        # Validate permission structure
-        for perm in permission_updates:
-            if "slug" not in perm:
-                return {
-                    "success": False,
-                    "error": "Each permission must have a 'slug' field",
-                    "workflow_id": workflow_id
-                }
-
-        # Prepare update data
+        # Convert Pydantic models to dict format for API
         workflow_permissions = []
         for perm in permission_updates:
             workflow_permissions.append({
-                "slug": perm["slug"],
-                "description": perm.get("description", f"Permission: {perm['slug']}")
+                "slug": perm.slug,
+                "description": perm.description
             })
 
         update_data = {"permissions": workflow_permissions}
@@ -246,7 +237,7 @@ async def configure_workflow_forms(
     workflow_id: str,
     action_slug: str,
     form_name: str,
-    form_fields: List[Dict[str, Any]]
+    form_fields: List[FormField]
 ) -> Dict[str, Any]:
     """
     Configure forms for workflow actions with comprehensive field management.
@@ -258,8 +249,7 @@ async def configure_workflow_forms(
         workflow_id: The workflow to modify
         action_slug: The action to add/update form for
         form_name: Business name for the form
-        form_fields: List of field definitions with 'key', 'type', 'required', and optional 'options'
-                    e.g., [{"key": "comment", "type": "string", "required": false}]
+        form_fields: List of FormField objects (Pydantic models for Gemini compatibility)
 
     Returns:
         Success/failure status with form configuration details
@@ -281,6 +271,9 @@ async def configure_workflow_forms(
         updated_actions = []
         action_found = False
 
+        # Convert Pydantic models to dict format for API
+        fields_data = [field.model_dump(by_alias=True) for field in form_fields]
+
         for action in existing_workflow.get("actions", []):
             if action.get("slug") == action_slug:
                 # Update this action with the form
@@ -289,7 +282,7 @@ async def configure_workflow_forms(
                 updated_action["requiresForm"] = True
                 updated_action["form"] = {
                     "name": form_name,
-                    "fields": form_fields
+                    "fields": fields_data
                 }
                 updated_actions.append(updated_action)
             else:
@@ -314,7 +307,7 @@ async def configure_workflow_forms(
             "action_slug": action_slug,
             "form_name": form_name,
             "fields_configured": len(form_fields),
-            "field_keys": [f["key"] for f in form_fields],
+            "field_keys": [f.key for f in form_fields],
             "message": f"Successfully configured form '{form_name}' for action '{action_slug}'",
             "validation": result.get("validation", {}),
             "affected_components": result.get("affected_components", []),
