@@ -14,9 +14,16 @@ app = FastAPI(
 )
 
 # Add CORS middleware
+# Note: allow_origins cannot be ["*"] when allow_credentials=True
+# Must specify exact origins when using credentials
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "https://luqe.alelo-luqe.fun"
+    ],
+    allow_origin_regex=r"https://.*\.alelo-luqe\.fun",  # Allow all subdomains
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
