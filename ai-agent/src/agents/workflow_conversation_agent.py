@@ -237,6 +237,48 @@ User message: {message}"""
 
         return unique_tools
 
+    def _extract_workflow_id_from_result(self, result) -> Optional[str]:
+        """
+        Extract created workflow ID from tool result.
+
+        Args:
+            result: Pydantic AI RunResult object
+
+        Returns:
+            Workflow spec_id if a create tool was called, None otherwise
+        """
+        try:
+            if not hasattr(result, 'new_messages'):
+                return None
+
+            messages = result.new_messages()
+
+            for message in messages:
+                # Look for ToolReturnPart which contains tool results
+                if hasattr(message, 'parts'):
+                    for part in message.parts:
+                        # ToolReturnPart has tool_name and content
+                        if hasattr(part, 'tool_name') and hasattr(part, 'content'):
+                            # Check if it's a creation tool
+                            if 'create_workflow' in part.tool_name:
+                                # Parse the JSON result
+                                try:
+                                    import json
+                                    result_data = json.loads(part.content) if isinstance(part.content, str) else part.content
+                                    # Look for spec_id or specId in the result
+                                    workflow_id = result_data.get('spec_id') or result_data.get('specId')
+                                    if workflow_id:
+                                        logger.info(f"📋 Extracted workflow ID: {workflow_id}")
+                                        return workflow_id
+                                except Exception as e:
+                                    logger.debug(f"Could not parse workflow ID: {e}")
+                                    continue
+
+        except Exception as e:
+            logger.error(f"Error extracting workflow ID: {e}", exc_info=True)
+
+        return None
+
     def _get_legacy_system_instructions(self) -> str:
         return """You are a business process consultant and workflow design expert. Your role is to help organizations create and optimize their business processes through natural conversation.
 
@@ -396,10 +438,10 @@ Remember: You are helping businesses design better processes, not teaching them 
         workflow_spec: Optional[Dict[str, Any]] = None,
         conversation_history: str = "",
         user_context: Optional[Dict[str, Any]] = None
-    ) -> tuple[str, List[str]]:
+    ) -> tuple[str, List[str], Optional[str]]:
         """
         Have a conversation about the workflow using MCP tools.
-        Returns: (response_text, list_of_tools_used)
+        Returns: (response_text, list_of_tools_used, workflow_id_if_created)
         """
         # Extract metadata from user_context
         conversation_id = user_context.get("conversation_id", "") if user_context else ""
@@ -462,7 +504,10 @@ Remember: You are helping businesses design better processes, not teaching them 
                         # Extract tools used from message history
                         tools_used = self._extract_tools_from_messages(result)
 
-                return response_text, tools_used
+                        # Extract workflow ID if created
+                        workflow_id = self._extract_workflow_id_from_result(result)
+
+                return response_text, tools_used, workflow_id
 
             except Exception as e:
                 error_str = str(e)

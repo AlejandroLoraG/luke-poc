@@ -109,7 +109,7 @@ async def chat_with_agent(request: ChatRequest) -> ChatResponse:
         }
 
         # Have the conversation
-        response_text, tools_used = await agent.chat(
+        response_text, tools_used, workflow_created_id = await agent.chat(
             message=request.message,
             workflow_spec=workflow_spec_dict,
             conversation_history=history,
@@ -129,6 +129,8 @@ async def chat_with_agent(request: ChatRequest) -> ChatResponse:
             conversation_id=conversation_id,
             prompt_count=prompt_count,
             mcp_tools_used=tools_used,
+            mcp_tools_requested=tools_used,  # Same as used for now (AI called them already)
+            workflow_created_id=workflow_created_id,
             workflow_source=workflow_source,
             language=request.language.value  # Return language used
         )

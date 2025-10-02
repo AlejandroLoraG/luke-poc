@@ -118,6 +118,8 @@ class ChatResponse(BaseModel):
     conversation_id: str
     prompt_count: int
     mcp_tools_used: List[str] = []
+    mcp_tools_requested: List[str] = []  # Tools the AI wants to call (for UI display)
+    workflow_created_id: Optional[str] = None  # Workflow ID if one was created
     workflow_source: Optional[str] = None
     language: str
 

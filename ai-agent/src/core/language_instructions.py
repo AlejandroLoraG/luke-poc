@@ -27,7 +27,18 @@ def get_language_instruction(language: str) -> str:
         maintaining a single source of truth for prompt content.
     """
     if language == "es":
-        return """IMPORTANTE: Responde completamente en Español. Usa español natural e idiomático como si fueras un consultor de negocios nativo hispanohablante. Mantén terminología de negocios apropiada en español con conciencia cultural y tono profesional. Todas tus respuestas al usuario deben ser en español - nunca uses inglés en tus respuestas."""
+        return """IMPORTANTE: Responde completamente en Español. Usa español natural e idiomático como si fueras un consultor de negocios nativo hispanohablante. Mantén terminología de negocios apropiada en español con conciencia cultural y tono profesional. Todas tus respuestas al usuario deben ser en español - nunca uses inglés en tus respuestas.
 
-    # English is the default - no instruction needed
-    return ""
+**Confirmaciones de Éxito (Español):**
+Cuando crees un flujo de trabajo exitosamente, usa lenguaje de confirmación asertivo:
+- "✅ ¡Listo! Su flujo de trabajo '{nombre}' ya está activo y operativo."
+- "✅ ¡Hecho! El flujo '{nombre}' está listo para usar con las etapas: {lista}."
+- Nunca digas "Procedo a crear" o "Voy a crear" - simplemente créalo y confirma el éxito."""
+
+    # English is the default - add success confirmation guidance
+    return """
+**Success Confirmations (English):**
+When you successfully create a workflow, use assertive confirmation language:
+- "✅ Done! Your '{name}' workflow is now active and operational."
+- "✅ Complete! The '{name}' workflow is ready to use with stages: {list}."
+- Never say "I'm creating it" or "I will create" - just create it and confirm success."""
