@@ -11,6 +11,7 @@ This module handles workflow state and action operations:
 from typing import Dict, Any, List, Optional
 from svc_client import svc_client
 from shared.schemas import StandardErrorResponse, ErrorCategory, ErrorSeverity, ErrorCodes
+from schemas.tool_parameters import WorkflowAction
 
 
 def create_success_response(data: Dict[str, Any], operation: str) -> Dict[str, Any]:
@@ -147,14 +148,14 @@ async def add_workflow_state(
 
 async def update_workflow_actions(
     spec_id: str,
-    actions: List[Dict[str, Any]]
+    actions: List[WorkflowAction]
 ) -> Dict[str, Any]:
     """
     Update the actions for a specific workflow.
 
     Args:
         spec_id: The workflow specification ID
-        actions: List of action definitions to replace current actions
+        actions: List of WorkflowAction objects (Pydantic models for Gemini compatibility)
 
     Returns:
         Success/failure status with updated workflow details
@@ -164,8 +165,11 @@ async def update_workflow_actions(
         workflow_result = await svc_client.get_workflow(spec_id)
         workflow_spec = workflow_result.get("workflow_spec", {})
 
+        # Convert Pydantic models to dict format for API
+        actions_data = [action.model_dump(by_alias=True) for action in actions]
+
         # Update actions
-        workflow_spec["actions"] = actions
+        workflow_spec["actions"] = actions_data
 
         # Save updated workflow
         update_result = await svc_client.update_workflow(spec_id, workflow_spec)
@@ -173,7 +177,7 @@ async def update_workflow_actions(
         return create_success_response(
             {
                 "spec_id": spec_id,
-                "actions": actions,
+                "actions": actions_data,
                 "actions_count": len(actions),
                 "update_result": update_result
             },
