@@ -306,6 +306,7 @@ async def get_token_telemetry(
 async def generate_sse_stream(
     message: str,
     conversation_id: str,
+    session_id: str,
     workflow_spec_dict: Optional[Dict[str, Any]] = None,
     workflow_source: Optional[str] = None,
     language: str = "en"
@@ -359,8 +360,56 @@ async def generate_sse_stream(
                         mcp_tools_used=event_data.get('mcp_tools_used', [])
                     )
 
-                    # Add prompt count to completion event
+                    # Check if workflow was created by looking for creation tools
+                    tools_used = event_data.get('mcp_tools_used', [])
+                    workflow_created_id = None
+
+                    if 'create_workflow_from_description' in tools_used or 'create_workflow_from_template' in tools_used:
+                        # Workflow was created - try to extract ID from response
+                        # Look for workflow ID pattern in the complete response
+                        import re
+                        workflow_id_match = re.search(r'wf_[\w_]+', complete_response)
+                        if workflow_id_match:
+                            workflow_created_id = workflow_id_match.group(0)
+                        else:
+                            # Fallback: check recent workflows in storage
+                            recent_workflows = workflow_storage.get_stats().get('workflow_ids', [])
+                            if recent_workflows:
+                                workflow_created_id = recent_workflows[-1]  # Most recent
+
+                    # Handle workflow binding if created
+                    binding = chat_binding_manager.get_binding(conversation_id)
+
+                    if workflow_created_id and binding and not binding.is_bound():
+                        try:
+                            # Fetch and cache the workflow
+                            import httpx
+                            async with httpx.AsyncClient() as client:
+                                response = await client.get(
+                                    f"{settings.svc_builder_url}/api/v1/workflows/{workflow_created_id}"
+                                )
+                                if response.status_code == 200:
+                                    workflow_data = response.json()
+                                    if "workflow_spec" in workflow_data:
+                                        workflow_storage.store_workflow(workflow_created_id, workflow_data["workflow_spec"])
+                                        logger.info(f"✅ Stored workflow {workflow_created_id} in streaming cache")
+
+                            # Bind the workflow
+                            binding = chat_binding_manager.bind_workflow(conversation_id, workflow_created_id)
+                            logger.info(f"✅ Bound streaming chat {conversation_id} to workflow {workflow_created_id}")
+                        except Exception as e:
+                            logger.error(f"Failed to bind workflow in streaming: {e}")
+
+                    # Get final binding state
+                    binding = chat_binding_manager.get_binding(conversation_id)
+
+                    # Add all required fields to completion event
                     event_data['prompt_count'] = prompt_count
+                    event_data['session_id'] = session_id
+                    event_data['workflow_created_id'] = workflow_created_id
+                    event_data['workflow_bound_id'] = binding.bound_workflow_id if binding else None
+                    event_data['is_chat_locked'] = binding.is_bound() if binding else False
+
                     yield f"data: {json.dumps(event_data)}\n\n"
                     continue
 
@@ -458,6 +507,7 @@ async def stream_chat_with_agent(request: ChatRequest) -> StreamingResponse:
         stream_generator = generate_sse_stream(
             message=request.message,
             conversation_id=conversation_id,
+            session_id=request.session_id,
             workflow_spec_dict=workflow_spec_dict,
             workflow_source=workflow_source,
             language=request.language.value
