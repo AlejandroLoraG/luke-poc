@@ -147,9 +147,10 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 
     status_code = ERROR_CATEGORY_TO_HTTP_STATUS[error_response.category]
 
+    import json
     return JSONResponse(
         status_code=status_code,
-        content=error_response.model_dump()
+        content=json.loads(error_response.model_dump_json())
     )
 
 
@@ -194,7 +195,8 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
         }
     )
 
+    import json
     return JSONResponse(
         status_code=exc.status_code,
-        content=error_response.model_dump()
+        content=json.loads(error_response.model_dump_json())
     )

@@ -44,6 +44,11 @@ class WorkflowContext:
     # Language preference for AI responses
     language: str = "en"  # ISO 639-1 code: "en" or "es"
 
+    # Session and binding context (NEW)
+    session_id: Optional[str] = None
+    bound_workflow_id: Optional[str] = None  # Workflow this chat is locked to
+    is_workflow_bound: bool = False  # True if chat is bound to a workflow
+
     def add_workflow_reference(self, spec_id: str, name: str, action: str = "discussed"):
         """
         Track a workflow mentioned in this conversation.
@@ -70,6 +75,15 @@ class WorkflowContext:
             List of recent workflow references
         """
         return self.conversation_workflows[-limit:] if self.conversation_workflows else []
+
+    def can_create_new_workflow(self) -> bool:
+        """
+        Check if this chat can create a new workflow.
+
+        Returns:
+            False if already bound to a workflow, True otherwise
+        """
+        return not self.is_workflow_bound
 
 
 class WorkflowConversationAgent:
@@ -135,6 +149,75 @@ class WorkflowConversationAgent:
             """
             from ..core.language_instructions import get_language_instruction
             return get_language_instruction(ctx.deps.language)
+
+        # Register dynamic workflow binding constraint (Pydantic AI best practice)
+        @self.agent.system_prompt
+        def add_workflow_binding_constraint(ctx: RunContext[WorkflowContext]) -> str:
+            """
+            Dynamic instruction that enforces workflow binding rules.
+
+            If a chat is bound to a workflow, the agent can ONLY interact with that
+            workflow (view, update, manage). It cannot create new workflows or switch
+            to different workflows.
+
+            Following Pydantic AI best practices:
+            - Uses @agent.system_prompt decorator for dynamic constraints
+            - Accesses binding state via RunContext dependency injection
+            - Provides context-aware instructions based on binding status
+
+            Args:
+                ctx: RunContext with WorkflowContext dependency
+
+            Returns:
+                Binding constraint instruction (empty if not bound)
+            """
+            if not ctx.deps.is_workflow_bound:
+                return ""  # No constraints if not bound
+
+            workflow_id = ctx.deps.bound_workflow_id
+            workflow_name = ctx.deps.workflow_spec.get("name", "Unknown") if ctx.deps.workflow_spec else "your workflow"
+
+            # Language-aware constraint messages
+            if ctx.deps.language == "es":
+                return f"""
+🔒 RESTRICCIÓN IMPORTANTE DE FLUJO DE TRABAJO:
+
+Este chat está vinculado EXCLUSIVAMENTE al flujo de trabajo: "{workflow_name}" (ID: {workflow_id})
+
+PUEDES:
+✅ Ver los detalles de este flujo de trabajo
+✅ Actualizar este flujo de trabajo (estados, acciones, permisos)
+✅ Responder preguntas sobre este flujo de trabajo
+✅ Ayudar a gestionar este flujo de trabajo
+
+NO PUEDES:
+❌ Crear nuevos flujos de trabajo (este chat ya tiene uno)
+❌ Cambiar a un flujo de trabajo diferente
+❌ Listar o buscar otros flujos de trabajo
+
+Si el usuario intenta crear un nuevo flujo de trabajo, explica amablemente:
+"Este chat está dedicado a tu flujo de trabajo '{workflow_name}'. Para crear un nuevo flujo de trabajo, por favor inicia un nuevo chat en tu sesión."
+"""
+            else:  # English
+                return f"""
+🔒 IMPORTANT WORKFLOW BINDING CONSTRAINT:
+
+This chat is EXCLUSIVELY bound to workflow: "{workflow_name}" (ID: {workflow_id})
+
+YOU CAN:
+✅ View details of this workflow
+✅ Update this workflow (states, actions, permissions)
+✅ Answer questions about this workflow
+✅ Help manage this workflow
+
+YOU CANNOT:
+❌ Create new workflows (this chat already has one)
+❌ Switch to a different workflow
+❌ List or search other workflows
+
+If the user tries to create a new workflow, politely explain:
+"This chat is dedicated to your '{workflow_name}' workflow. To create a new workflow, please start a new chat in your session."
+"""
 
     def _enhance_message_with_mode(
         self,
@@ -265,8 +348,10 @@ User message: {message}"""
                                 try:
                                     import json
                                     result_data = json.loads(part.content) if isinstance(part.content, str) else part.content
-                                    # Look for spec_id or specId in the result
-                                    workflow_id = result_data.get('spec_id') or result_data.get('specId')
+                                    # Look for workflow_id, spec_id, or specId in the result
+                                    workflow_id = (result_data.get('workflow_id') or
+                                                 result_data.get('spec_id') or
+                                                 result_data.get('specId'))
                                     if workflow_id:
                                         logger.info(f"📋 Extracted workflow ID: {workflow_id}")
                                         return workflow_id
@@ -449,13 +534,21 @@ Remember: You are helping businesses design better processes, not teaching them 
         conversation_workflows = user_context.get("conversation_workflows", []) if user_context else []
         language = user_context.get("language", "en") if user_context else "en"
 
+        # Extract session and binding context (NEW)
+        session_id = user_context.get("session_id") if user_context else None
+        bound_workflow_id = user_context.get("bound_workflow_id") if user_context else None
+        is_workflow_bound = user_context.get("is_workflow_bound", False) if user_context else False
+
         # Create properly typed context
         context = WorkflowContext(
             conversation_id=conversation_id,
             turn_count=turn_count,
             workflow_spec=workflow_spec,
             conversation_workflows=conversation_workflows,
-            language=language
+            language=language,
+            session_id=session_id,
+            bound_workflow_id=bound_workflow_id,
+            is_workflow_bound=is_workflow_bound
         )
 
         # Infer mode and enhance message if modular prompts enabled
@@ -562,13 +655,21 @@ Remember: You are helping businesses design better processes, not teaching them 
         conversation_workflows = user_context.get("conversation_workflows", []) if user_context else []
         language = user_context.get("language", "en") if user_context else "en"
 
+        # Extract session and binding context (NEW)
+        session_id = user_context.get("session_id") if user_context else None
+        bound_workflow_id = user_context.get("bound_workflow_id") if user_context else None
+        is_workflow_bound = user_context.get("is_workflow_bound", False) if user_context else False
+
         # Create properly typed context
         context = WorkflowContext(
             conversation_id=conversation_id,
             turn_count=turn_count,
             workflow_spec=workflow_spec,
             conversation_workflows=conversation_workflows,
-            language=language
+            language=language,
+            session_id=session_id,
+            bound_workflow_id=bound_workflow_id,
+            is_workflow_bound=is_workflow_bound
         )
 
         # Infer mode and enhance message if modular prompts enabled

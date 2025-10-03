@@ -24,6 +24,8 @@ CHAT_ENDPOINT="$AI_AGENT_URL/api/v1/chat"
 # Global variables for conversation tracking
 MANAGER_CONVERSATION_ID=""
 NOVICE_CONVERSATION_ID=""
+MANAGER_SESSION_ID=""
+NOVICE_SESSION_ID=""
 
 # Helper functions
 print_header() {
@@ -52,14 +54,33 @@ print_success() {
     echo -e "${GREEN}✅ SUCCESS:${NC} $1\n"
 }
 
+# Function to create a session
+create_session() {
+    local user_identifier="$1"
+
+    local response=$(curl -s -X POST "$AI_AGENT_URL/api/v1/sessions?user_identifier=$user_identifier")
+
+    local session_id=$(echo "$response" | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    print(data.get('session_id', ''))
+except:
+    print('')
+")
+
+    echo "$session_id"
+}
+
 # Function to send message to AI agent
 send_message() {
     local message="$1"
     local conversation_id="$2"
     local user_type="$3"
+    local session_id="$4"
 
     # Build JSON payload
-    local json_payload="{\"message\": \"$message\""
+    local json_payload="{\"message\": \"$message\", \"session_id\": \"$session_id\""
     if [[ -n "$conversation_id" ]]; then
         json_payload="$json_payload, \"conversation_id\": \"$conversation_id\""
     fi
@@ -163,16 +184,20 @@ test_manager_persona() {
     echo -e "${CYAN}Context: She knows exactly what process she wants to automate${NC}"
     echo -e "${CYAN}Goal: Create a supplier onboarding workflow${NC}\n"
 
+    # Create session for manager
+    MANAGER_SESSION_ID=$(create_session "manager_sarah")
+    print_status "Created session for Manager: $MANAGER_SESSION_ID"
+
     # Manager knows exactly what they want
-    send_message "Hi, I need to create a workflow for our supplier onboarding process. We have a very specific procedure that all new suppliers must go through." "Manager"
+    send_message "Hi, I need to create a workflow for our supplier onboarding process. We have a very specific procedure that all new suppliers must go through." "" "Manager" "$MANAGER_SESSION_ID"
 
-    send_message "Our supplier onboarding has these stages: Application Submitted, Documentation Review, Compliance Check, Contract Negotiation, and finally Approved or Rejected. Can you create this workflow for me?" "$MANAGER_CONVERSATION_ID" "Manager"
+    send_message "Our supplier onboarding has these stages: Application Submitted, Documentation Review, Compliance Check, Contract Negotiation, and finally Approved or Rejected. Can you create this workflow for me?" "$MANAGER_CONVERSATION_ID" "Manager" "$MANAGER_SESSION_ID"
 
-    send_message "Yes, please create this supplier onboarding workflow in the system. We need it operational by next week." "$MANAGER_CONVERSATION_ID" "Manager"
+    send_message "Yes, please create this supplier onboarding workflow in the system. We need it operational by next week." "$MANAGER_CONVERSATION_ID" "Manager" "$MANAGER_SESSION_ID"
 
-    send_message "Perfect! Now I also need a workflow for handling customer returns. The process is: Return Requested, Item Received, Quality Inspection, and then either Refund Issued or Return Rejected." "$MANAGER_CONVERSATION_ID" "Manager"
+    send_message "Perfect! Now I also need a workflow for handling customer returns. The process is: Return Requested, Item Received, Quality Inspection, and then either Refund Issued or Return Rejected." "$MANAGER_CONVERSATION_ID" "Manager" "$MANAGER_SESSION_ID"
 
-    send_message "Create the customer returns workflow as well, please." "$MANAGER_CONVERSATION_ID" "Manager"
+    send_message "Create the customer returns workflow as well, please." "$MANAGER_CONVERSATION_ID" "Manager" "$MANAGER_SESSION_ID"
 
     print_status "Manager conversation completed - Created 2 workflows with clear requirements"
 }
@@ -184,20 +209,24 @@ test_novice_persona() {
     echo -e "${CYAN}Context: He knows his work but doesn't understand formal workflows${NC}"
     echo -e "${CYAN}Goal: Learn to create a project management workflow${NC}\n"
 
+    # Create session for novice
+    NOVICE_SESSION_ID=$(create_session "novice_mike")
+    print_status "Created session for Novice: $NOVICE_SESSION_ID"
+
     # Novice starts with uncertainty
-    send_message "Hello, I'm new to this. I handle projects at work but I'm not sure how to create a workflow. Can you help me?" "Novice"
+    send_message "Hello, I'm new to this. I handle projects at work but I'm not sure how to create a workflow. Can you help me?" "" "Novice" "$NOVICE_SESSION_ID"
 
-    send_message "Well, when I get a new project, I usually just start working on it. Sometimes I forget things or don't know what to do next. I think a workflow might help?" "$NOVICE_CONVERSATION_ID" "Novice"
+    send_message "Well, when I get a new project, I usually just start working on it. Sometimes I forget things or don't know what to do next. I think a workflow might help?" "$NOVICE_CONVERSATION_ID" "Novice" "$NOVICE_SESSION_ID"
 
-    send_message "That sounds helpful! So for my projects, I typically receive a request, then I need to plan it, work on it, and deliver it. Is that enough for a workflow?" "$NOVICE_CONVERSATION_ID" "Novice"
+    send_message "That sounds helpful! So for my projects, I typically receive a request, then I need to plan it, work on it, and deliver it. Is that enough for a workflow?" "$NOVICE_CONVERSATION_ID" "Novice" "$NOVICE_SESSION_ID"
 
-    send_message "You're right, I should think more about this. Let me think... After I receive a project request, I should probably review it first to understand what's needed. Then I plan it out, execute the work, review everything, and deliver to the client. Does that make more sense?" "$NOVICE_CONVERSATION_ID" "Novice"
+    send_message "You're right, I should think more about this. Let me think... After I receive a project request, I should probably review it first to understand what's needed. Then I plan it out, execute the work, review everything, and deliver to the client. Does that make more sense?" "$NOVICE_CONVERSATION_ID" "Novice" "$NOVICE_SESSION_ID"
 
-    send_message "Yes, that sounds much better! Can you create this project workflow for me? I'd like to see how it works." "$NOVICE_CONVERSATION_ID" "Novice"
+    send_message "Yes, that sounds much better! Can you create this project workflow for me? I'd like to see how it works." "$NOVICE_CONVERSATION_ID" "Novice" "$NOVICE_SESSION_ID"
 
-    send_message "This is great! I can see how this would help me stay organized. What if I wanted to add a step for getting approval from my manager before I start working? Could I modify the workflow?" "$NOVICE_CONVERSATION_ID" "Novice"
+    send_message "This is great! I can see how this would help me stay organized. What if I wanted to add a step for getting approval from my manager before I start working? Could I modify the workflow?" "$NOVICE_CONVERSATION_ID" "Novice" "$NOVICE_SESSION_ID"
 
-    send_message "Yes, please add a manager approval step after the planning phase and before execution." "$NOVICE_CONVERSATION_ID" "Novice"
+    send_message "Yes, please add a manager approval step after the planning phase and before execution." "$NOVICE_CONVERSATION_ID" "Novice" "$NOVICE_SESSION_ID"
 
     print_status "Novice conversation completed - Learned workflow design and created customized workflow"
 }

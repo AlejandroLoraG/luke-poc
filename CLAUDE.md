@@ -47,6 +47,11 @@ curl http://localhost:8001/api/v1/health  # AI Agent
 # Verify created workflows
 ./test_conversations.sh verify
 
+# Spanish language tests
+./test_conversations_es.sh gerente  # Spanish business manager scenario
+./test_conversations_es.sh novato   # Spanish novice user scenario
+./test_conversations_es.sh verificar # Verify Spanish workflows
+
 # Integration tests
 python tests/integration_test.py
 
@@ -115,8 +120,10 @@ User Chat ↔ AI Agent (port 8001) ↔ MCP Server (port 8002) ↔ svc-builder (p
 - **Auto-Generation**: Technical IDs, slugs, and permissions generated from business descriptions
 - **MCP Tool Integration**: AI uses standardized tools via FastMCP for workflow operations
 - **Conversation Context**: Maintains chat history and workflow context across interactions
+- **Action-First UX**: AI creates workflows immediately when users confirm, no ambiguous announcements
+- **Multilingual Support**: Full English and Spanish support with culturally appropriate responses
 
-### Recent Code Cleanup Achievements ✨
+### Recent Code Cleanup & UX Achievements ✨
 The codebase has undergone comprehensive modernization:
 
 1. **Modular MCP Server**: Split monolithic 1169-line server into 6 organized tool modules:
@@ -135,11 +142,63 @@ The codebase has undergone comprehensive modernization:
 
 5. **Structured Logging**: JSON logging framework for observability and debugging
 
+6. **UX-First Workflow Creation**: Action-first AI behavior with immediate confirmations
+   - No more "I'm creating it" - AI creates immediately and confirms success
+   - Assertive completion language: "✅ Done! Your workflow is active"
+   - Tool visibility: `mcp_tools_used` and `workflow_created_id` in responses
+   - Multilingual support with culturally appropriate confirmations
+
+7. **Multilingual Support**: Full Spanish and English support
+   - Dynamic language instructions via `language_instructions.py`
+   - Culturally appropriate responses (Spanish: "¡Listo!" vs English: "Done!")
+   - Test scripts for both languages: `test_conversations.sh` and `test_conversations_es.sh`
+
 ### Service Communication
 - **ai-agent** connects to **mcp-server** at `http://mcp-server:8002`
 - **mcp-server** connects to **svc-builder** at `http://svc-builder:8000`
 - All services communicate via HTTP APIs within Docker network
 - Services expose ports to host for testing: 8000, 8001, 8002
+
+## AI Agent Behavior
+
+### Workflow Creation UX
+The AI agent follows an **action-first approach** for optimal user experience:
+
+**✅ Correct Flow**:
+1. User: "Create a workflow: Planning → Execution → Complete"
+2. AI: [Calls `create_workflow_from_description` immediately]
+3. AI: "✅ Done! Your 'Project Management' workflow is now active with 3 stages: Planning, Execution, Complete."
+
+**❌ Wrong Flow** (What we avoid):
+1. User: "Create it"
+2. AI: "I'm going to create it..." or "Procedo a crear..." ❌
+3. User: "Was it created?" ❌
+
+### Confirmation Language
+The AI uses assertive, present-tense confirmations:
+
+**English**:
+- "✅ Done! Your '{workflow_name}' workflow is now active and operational."
+- "✅ Complete! The '{workflow_name}' workflow is ready to use with stages: {list}."
+
+**Spanish**:
+- "✅ ¡Listo! Su flujo de trabajo '{nombre}' ya está activo y operativo."
+- "✅ ¡Hecho! El flujo '{nombre}' está listo para usar con las etapas: {lista}."
+
+**Key Principles**:
+- Never say "I created it" (past, uncertain) - say "It's active" (present, certain)
+- Never announce "I will create" - just create it and confirm success
+- Use visual indicators (✅) for clear success confirmation
+
+### System Prompts
+The AI uses **modular system prompts** that adapt to conversation context:
+- **Creation Mode**: Optimized for workflow creation with action-first instructions
+- **Search Mode**: Focused on finding and exploring workflows
+- **Modification Mode**: Safe workflow updates with impact analysis
+- **Analysis Mode**: Explaining workflow structures and capabilities
+- **General Mode**: Basic queries and exploration
+
+Token efficiency: 40-60% reduction vs monolithic prompt (700 tokens vs 2000).
 
 ## Configuration
 
@@ -154,11 +213,41 @@ The codebase has undergone comprehensive modernization:
 - `MAX_CONVERSATION_LENGTH=15` - Chat history limit
 - Service ports: `AI_AGENT_PORT=8001`, `MCP_SERVER_PORT=8002`, `SERVICE_PORT=8000`
 
-## Streaming API
+## Chat API
 
 ### Endpoints
 - **Standard Chat**: `POST /api/v1/chat` - Returns complete response
 - **Streaming Chat**: `POST /api/v1/chat/stream` - Server-Sent Events stream
+
+### Request Format
+```json
+{
+  "message": "Create a workflow for document approval",
+  "conversation_id": "uuid-optional",
+  "language": "en",  // "en" or "es"
+  "workflow_id": "wf_existing_workflow",  // optional
+  "workflow_spec": { ... }  // optional
+}
+```
+
+### Response Format (Standard Chat)
+```json
+{
+  "response": "✅ Done! Your 'Document Approval' workflow is now active",
+  "conversation_id": "uuid",
+  "prompt_count": 3,
+  "mcp_tools_used": ["create_workflow_from_description"],
+  "mcp_tools_requested": ["create_workflow_from_description"],
+  "workflow_created_id": "wf_document_approval",
+  "workflow_source": "cached_workflow:wf_123",
+  "language": "en"
+}
+```
+
+**New Fields Explained**:
+- `mcp_tools_used`: Tools that were successfully executed
+- `mcp_tools_requested`: Tools the AI wanted to call (for UI display)
+- `workflow_created_id`: Spec ID of the created workflow (if any)
 
 ### Streaming Response Format
 ```javascript
@@ -169,14 +258,45 @@ data: {"type": "complete", "conversation_id": "uuid", "prompt_count": 1, "mcp_to
 data: {"type": "error", "error": "error message", "conversation_id": "uuid"}
 ```
 
-### React Integration Example
+### React Integration Examples
+
+#### Standard Chat with Tool Visibility
+```javascript
+const response = await fetch('/api/v1/chat', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    message: "Create a workflow for document approval",
+    conversation_id: conversationId,
+    language: "en"
+  })
+});
+
+const data = await response.json();
+
+// Display AI response
+setMessage(data.response);  // "✅ Done! Your workflow is active"
+
+// Show tools used
+if (data.mcp_tools_used.length > 0) {
+  setToolsUsed(data.mcp_tools_used);  // ["create_workflow_from_description"]
+}
+
+// Link to created workflow
+if (data.workflow_created_id) {
+  setWorkflowLink(`/workflows/${data.workflow_created_id}`);
+}
+```
+
+#### Streaming Chat
 ```javascript
 const response = await fetch('/api/v1/chat/stream', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
     message: "Create a workflow for me",
-    conversation_id: conversationId
+    conversation_id: conversationId,
+    language: "es"  // Spanish support
   })
 });
 
@@ -195,6 +315,8 @@ while (true) {
       const data = JSON.parse(line.slice(6));
       if (data.type === 'chunk') {
         setStreamingContent(data.content);
+      } else if (data.type === 'complete') {
+        setToolsUsed(data.mcp_tools_used);
       }
     }
   }
@@ -213,12 +335,20 @@ while (true) {
 
 ### Testing Strategy
 The system includes comprehensive persona-based testing that simulates:
-- **Experienced Business Manager**: Clear requirements, multiple workflows
-- **Novice User**: Learning-oriented, iterative workflow building
+- **Experienced Business Manager**: Clear requirements, multiple workflows (English & Spanish)
+- **Novice User**: Learning-oriented, iterative workflow building (English & Spanish)
 - **Verification**: Ensures workflows are properly created and stored
+
+**Test Expectations**:
+- AI creates workflows immediately when user confirms
+- Responses use assertive completion language ("✅ Done!" or "✅ ¡Listo!")
+- `mcp_tools_used` array is populated with tool names
+- Workflows are verified in storage after test completion
 
 ### Important Patterns
 - Always use `PYTHONPATH` when running services locally to resolve shared imports
 - Services must start in dependency order: svc-builder → mcp-server → ai-agent
 - Conversation testing scripts provide realistic usage examples
 - MCP tools abstract workflow operations from AI, enabling clean separation
+- AI uses action-first approach: CREATE → Confirm, never "I will create"
+- Multilingual responses maintain cultural appropriateness

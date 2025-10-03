@@ -71,10 +71,9 @@ async def get_workflow(spec_id: str) -> Dict[str, Any]:
     workflow_data = file_manager.load_workflow(spec_id)
 
     if workflow_data is None:
-        error_response = ErrorHandler.workflow_not_found_error(spec_id, "get_workflow")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=error_response.model_dump()
+            detail=f"Workflow with spec_id '{spec_id}' not found"
         )
 
     return {

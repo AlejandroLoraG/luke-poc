@@ -118,7 +118,8 @@ async def create_workflow_from_description(
         result = await svc_client.create_workflow(workflow_spec)
 
         return create_success_response({
-            "workflow_id": spec_id,
+            "spec_id": spec_id,  # Use spec_id to match WorkflowSpec model
+            "workflow_id": spec_id,  # Also include workflow_id for compatibility
             "name": name,
             "states_created": len(workflow_states),
             "actions_created": len(workflow_actions),

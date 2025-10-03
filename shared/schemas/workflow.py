@@ -107,19 +107,23 @@ class WorkflowStateTransitionResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
+    session_id: str  # REQUIRED: Session identifier
+    conversation_id: Optional[str] = None  # Auto-generated if not provided
     workflow_spec: Optional[WorkflowSpec] = None
     workflow_id: Optional[str] = None
-    conversation_id: Optional[str] = None
     language: Language = Language.ENGLISH
 
 
 class ChatResponse(BaseModel):
     response: str
     conversation_id: str
+    session_id: str  # Session this chat belongs to
     prompt_count: int
     mcp_tools_used: List[str] = []
     mcp_tools_requested: List[str] = []  # Tools the AI wants to call (for UI display)
-    workflow_created_id: Optional[str] = None  # Workflow ID if one was created
+    workflow_created_id: Optional[str] = None  # Workflow ID if one was created this turn
+    workflow_bound_id: Optional[str] = None  # Workflow this chat is bound to (if any)
+    is_chat_locked: bool = False  # True if chat is bound to a workflow
     workflow_source: Optional[str] = None
     language: str
 

@@ -10,6 +10,7 @@ from ..core.config import settings
 from ..core.conversation_manager import ConversationManager
 from ..core.workflow_storage import workflow_storage
 from ..core.streaming_service import streaming_service
+from ..core.shared_managers import session_manager, chat_binding_manager
 from ..agents.workflow_conversation_agent import WorkflowConversationAgent
 
 router = APIRouter(prefix="/api/v1", tags=["chat"])
@@ -34,47 +35,72 @@ async def get_workflow_agent() -> WorkflowConversationAgent:
 async def chat_with_agent(request: ChatRequest) -> ChatResponse:
     """
     Chat with the workflow agent about workflow specifications.
+
+    Now includes session management and chat-to-workflow binding.
     """
     try:
-        # Generate conversation ID if not provided
+        # 1. Validate session exists
+        if not request.session_id:
+            raise HTTPException(status_code=400, detail="session_id is required")
+
+        session = session_manager.get_session(request.session_id)
+        if not session:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Session {request.session_id} not found. Please create a session first."
+            )
+
+        # Update session activity
+        session_manager.update_activity(request.session_id)
+
+        # 2. Get or create conversation ID
         conversation_id = request.conversation_id or str(uuid.uuid4())
 
-        # Get conversation history and metadata
-        history = conversation_manager.get_context_string(conversation_id)
-        turn_count = conversation_manager.get_conversation_count(conversation_id)
+        # 3. Get or create chat binding
+        binding = chat_binding_manager.get_binding(conversation_id)
 
-        # Get the workflow agent
-        agent = await get_workflow_agent()
+        if not binding:
+            # Create new binding for this chat
+            binding = chat_binding_manager.create_binding(conversation_id, request.session_id)
+            logger.info(f"Created new chat binding: {conversation_id} in session: {request.session_id}")
+        else:
+            # Update binding activity
+            chat_binding_manager.update_activity(conversation_id)
 
-        # Resolve workflow specification
+        # 4. Resolve workflow specification
         workflow_spec_dict = None
         workflow_source = None
 
-        # Priority: workflow_spec > workflow_id
-        if request.workflow_spec:
+        if binding.is_bound():
+            # Chat is bound to a workflow - ALWAYS use that workflow
+            workflow_id = binding.bound_workflow_id
+            workflow_spec_dict = workflow_storage.get_workflow(workflow_id)
+
+            if not workflow_spec_dict:
+                logger.error(f"Bound workflow {workflow_id} not found in storage!")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Bound workflow {workflow_id} not found. Contact support."
+                )
+
+            workflow_source = f"bound_workflow:{workflow_id}"
+            logger.info(f"🔒 Chat {conversation_id} is bound to workflow {workflow_id}")
+
+        elif request.workflow_spec:
+            # Not bound, but spec provided in request
             if hasattr(request.workflow_spec, 'model_dump'):
                 workflow_spec_dict = request.workflow_spec.model_dump()
             else:
                 workflow_spec_dict = request.workflow_spec
             workflow_source = "provided_spec"
 
-            # Track in workflow memory
-            if workflow_spec_dict and "specId" in workflow_spec_dict:
-                conversation_manager.track_workflow(
-                    conversation_id,
-                    spec_id=workflow_spec_dict["specId"],
-                    name=workflow_spec_dict.get("name", "Unnamed Workflow"),
-                    action="discussed"
-                )
-
         elif request.workflow_id:
-            # Try cache first
+            # Not bound, but workflow_id provided in request
             workflow_spec_dict = conversation_manager.get_workflow_cached(request.workflow_id)
 
             if workflow_spec_dict:
                 workflow_source = f"cached_workflow:{request.workflow_id}"
             else:
-                # Load workflow from storage and cache it
                 stored_workflow = workflow_storage.get_workflow(request.workflow_id)
                 if stored_workflow is None:
                     raise HTTPException(
@@ -85,13 +111,9 @@ async def chat_with_agent(request: ChatRequest) -> ChatResponse:
                 conversation_manager.cache_workflow(request.workflow_id, workflow_spec_dict)
                 workflow_source = f"stored_workflow:{request.workflow_id}"
 
-            # Track in workflow memory
-            conversation_manager.track_workflow(
-                conversation_id,
-                spec_id=request.workflow_id,
-                name=workflow_spec_dict.get("name", "Unnamed Workflow"),
-                action="viewed"
-            )
+        # 5. Get conversation history and metadata
+        history = conversation_manager.get_context_string(conversation_id)
+        turn_count = conversation_manager.get_conversation_count(conversation_id)
 
         # Get recent workflows for context
         workflow_memory = conversation_manager.get_workflow_memory(conversation_id)
@@ -100,15 +122,22 @@ async def chat_with_agent(request: ChatRequest) -> ChatResponse:
             for ref in workflow_memory.get_recent_workflows(limit=5)
         ]
 
-        # Prepare user context with metadata for WorkflowContext
+        # 6. Get the workflow agent
+        agent = await get_workflow_agent()
+
+        # 7. Prepare enhanced user context with session and binding info
         user_context = {
             "conversation_id": conversation_id,
+            "session_id": request.session_id,
             "turn_count": turn_count,
             "conversation_workflows": recent_workflows_refs,
-            "language": request.language.value  # Extract language from request
+            "language": request.language.value,
+            # NEW: Binding context for WorkflowContext
+            "bound_workflow_id": binding.bound_workflow_id,
+            "is_workflow_bound": binding.is_bound()
         }
 
-        # Have the conversation
+        # 8. Have the conversation
         response_text, tools_used, workflow_created_id = await agent.chat(
             message=request.message,
             workflow_spec=workflow_spec_dict,
@@ -116,7 +145,42 @@ async def chat_with_agent(request: ChatRequest) -> ChatResponse:
             user_context=user_context
         )
 
-        # Store the conversation turn
+        # 9. Bind workflow if newly created and fetch it from svc-builder
+        if workflow_created_id and not binding.is_bound():
+            try:
+                # Fetch the workflow from svc-builder and store it locally
+                import httpx
+
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(
+                        f"{settings.svc_builder_url}/api/v1/workflows/{workflow_created_id}"
+                    )
+                    if response.status_code == 200:
+                        workflow_data = response.json()
+                        if "workflow_spec" in workflow_data:
+                            workflow_storage.store_workflow(workflow_created_id, workflow_data["workflow_spec"])
+                            logger.info(f"✅ Stored workflow {workflow_created_id} in ai-agent cache")
+
+                binding = chat_binding_manager.bind_workflow(conversation_id, workflow_created_id)
+                logger.info(f"✅ Bound chat {conversation_id} to newly created workflow {workflow_created_id}")
+            except ValueError as e:
+                logger.error(f"Failed to bind workflow: {e}")
+                # Don't fail the request, but log the error
+            except Exception as e:
+                logger.error(f"Failed to fetch/store workflow: {e}")
+                # Don't fail the request, but log the error
+
+        # 10. Track workflow in conversation memory
+        if workflow_spec_dict and "specId" in workflow_spec_dict:
+            action = "created" if workflow_created_id == workflow_spec_dict["specId"] else "discussed"
+            conversation_manager.track_workflow(
+                conversation_id,
+                spec_id=workflow_spec_dict["specId"],
+                name=workflow_spec_dict.get("name", "Unnamed Workflow"),
+                action=action
+            )
+
+        # 11. Store the conversation turn with workflow context
         prompt_count = conversation_manager.add_turn(
             conversation_id=conversation_id,
             user_message=request.message,
@@ -124,15 +188,19 @@ async def chat_with_agent(request: ChatRequest) -> ChatResponse:
             mcp_tools_used=tools_used
         )
 
+        # 12. Return enhanced response with session and binding info
         return ChatResponse(
             response=response_text,
             conversation_id=conversation_id,
+            session_id=request.session_id,
             prompt_count=prompt_count,
             mcp_tools_used=tools_used,
-            mcp_tools_requested=tools_used,  # Same as used for now (AI called them already)
+            mcp_tools_requested=tools_used,
             workflow_created_id=workflow_created_id,
+            workflow_bound_id=binding.bound_workflow_id,
+            is_chat_locked=binding.is_bound(),
             workflow_source=workflow_source,
-            language=request.language.value  # Return language used
+            language=request.language.value
         )
 
     except HTTPException:
@@ -315,40 +383,67 @@ async def generate_sse_stream(
 async def stream_chat_with_agent(request: ChatRequest) -> StreamingResponse:
     """
     Stream chat responses with the workflow agent using Server-Sent Events.
+
+    Now includes session management and chat-to-workflow binding.
     """
     try:
-        # Generate conversation ID if not provided
+        # 1. Validate session exists
+        if not request.session_id:
+            raise HTTPException(status_code=400, detail="session_id is required")
+
+        session = session_manager.get_session(request.session_id)
+        if not session:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Session {request.session_id} not found. Please create a session first."
+            )
+
+        # Update session activity
+        session_manager.update_activity(request.session_id)
+
+        # 2. Get or create conversation ID
         conversation_id = request.conversation_id or str(uuid.uuid4())
 
-        # Resolve workflow specification
+        # 3. Get or create chat binding
+        binding = chat_binding_manager.get_binding(conversation_id)
+
+        if not binding:
+            binding = chat_binding_manager.create_binding(conversation_id, request.session_id)
+            logger.info(f"Created new chat binding for streaming: {conversation_id}")
+        else:
+            chat_binding_manager.update_activity(conversation_id)
+
+        # 4. Resolve workflow specification
         workflow_spec_dict = None
         workflow_source = None
 
-        # Priority: workflow_spec > workflow_id
-        if request.workflow_spec:
+        if binding.is_bound():
+            # Chat is bound - ALWAYS use bound workflow
+            workflow_id = binding.bound_workflow_id
+            workflow_spec_dict = workflow_storage.get_workflow(workflow_id)
+
+            if not workflow_spec_dict:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Bound workflow {workflow_id} not found"
+                )
+
+            workflow_source = f"bound_workflow:{workflow_id}"
+            logger.info(f"🔒 Streaming with bound workflow {workflow_id}")
+
+        elif request.workflow_spec:
             if hasattr(request.workflow_spec, 'model_dump'):
                 workflow_spec_dict = request.workflow_spec.model_dump()
             else:
                 workflow_spec_dict = request.workflow_spec
             workflow_source = "provided_spec"
 
-            # Track in workflow memory
-            if workflow_spec_dict and "specId" in workflow_spec_dict:
-                conversation_manager.track_workflow(
-                    conversation_id,
-                    spec_id=workflow_spec_dict["specId"],
-                    name=workflow_spec_dict.get("name", "Unnamed Workflow"),
-                    action="discussed"
-                )
-
         elif request.workflow_id:
-            # Try cache first
             workflow_spec_dict = conversation_manager.get_workflow_cached(request.workflow_id)
 
             if workflow_spec_dict:
                 workflow_source = f"cached_workflow:{request.workflow_id}"
             else:
-                # Load workflow from storage and cache it
                 stored_workflow = workflow_storage.get_workflow(request.workflow_id)
                 if stored_workflow is None:
                     raise HTTPException(
@@ -358,14 +453,6 @@ async def stream_chat_with_agent(request: ChatRequest) -> StreamingResponse:
                 workflow_spec_dict = stored_workflow
                 conversation_manager.cache_workflow(request.workflow_id, workflow_spec_dict)
                 workflow_source = f"stored_workflow:{request.workflow_id}"
-
-            # Track in workflow memory
-            conversation_manager.track_workflow(
-                conversation_id,
-                spec_id=request.workflow_id,
-                name=workflow_spec_dict.get("name", "Unnamed Workflow"),
-                action="viewed"
-            )
 
         # Create the streaming generator
         stream_generator = generate_sse_stream(

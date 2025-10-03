@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .core.config import settings
 from .api.chat_router import router as chat_router
 from .api.workflow_router import router as workflow_router
+from .api.session_router import router as session_router
 
 # Create FastAPI application
 app = FastAPI(
@@ -30,6 +31,7 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(session_router)  # Session management endpoints
 app.include_router(chat_router)
 app.include_router(workflow_router)
 

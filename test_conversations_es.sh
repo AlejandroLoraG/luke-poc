@@ -23,6 +23,8 @@ CHAT_ENDPOINT="$AI_AGENT_URL/api/v1/chat"
 
 # Variables globales para seguimiento de conversaciones
 GERENTE_CONVERSATION_ID=""
+GERENTE_SESSION_ID=""
+NOVATO_SESSION_ID=""
 NOVATO_CONVERSATION_ID=""
 
 # Funciones auxiliares
@@ -52,15 +54,34 @@ print_success() {
     echo -e "${GREEN}✅ ÉXITO:${NC} $1\n"
 }
 
+# Función para crear una sesión
+create_session() {
+    local user_identifier="$1"
+
+    local response=$(curl -s -X POST "$AI_AGENT_URL/api/v1/sessions?user_identifier=$user_identifier")
+
+    local session_id=$(echo "$response" | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    print(data.get('session_id', ''))
+except:
+    print('')
+")
+
+    echo "$session_id"
+}
+
 # Función para enviar mensaje al agente IA
 send_message() {
     local message="$1"
     local conversation_id="$2"
     local user_type="$3"
+    local session_id="$4"
 
     # Construir payload JSON - escapar comillas en el mensaje
     local escaped_message=$(echo "$message" | sed 's/"/\\"/g')
-    local json_payload="{\"message\": \"$escaped_message\", \"language\": \"es\""
+    local json_payload="{\"message\": \"$escaped_message\", \"language\": \"es\", \"session_id\": \"$session_id\""
     if [[ -n "$conversation_id" ]]; then
         json_payload="$json_payload, \"conversation_id\": \"$conversation_id\""
     fi
@@ -178,16 +199,20 @@ test_gerente_persona() {
     echo -e "${CYAN}Contexto: Ella sabe exactamente qué proceso quiere automatizar${NC}"
     echo -e "${CYAN}Objetivo: Crear un flujo de trabajo de aprobación de presupuestos${NC}\n"
 
+    # Crear sesión para gerente
+    GERENTE_SESSION_ID=$(create_session "gerente_maria")
+    print_status "Sesión creada para Gerente: $GERENTE_SESSION_ID"
+
     # Gerente sabe exactamente lo que quiere
-    send_message "Hola, necesito crear un flujo de trabajo para nuestro proceso de aprobación de presupuestos. Tenemos un procedimiento muy específico que todos los presupuestos deben seguir." "" "Gerente"
+    send_message "Hola, necesito crear un flujo de trabajo para nuestro proceso de aprobación de presupuestos. Tenemos un procedimiento muy específico que todos los presupuestos deben seguir." "" "Gerente" "$GERENTE_SESSION_ID"
 
-    send_message "Nuestro proceso de aprobación de presupuestos tiene estas etapas: Presupuesto Enviado, Revisión Financiera, Aprobación de Gerencia, Aprobación Final, y finalmente Aprobado o Rechazado. ¿Puedes crear este flujo de trabajo para mí?" "$GERENTE_CONVERSATION_ID" "Gerente"
+    send_message "Nuestro proceso de aprobación de presupuestos tiene estas etapas: Presupuesto Enviado, Revisión Financiera, Aprobación de Gerencia, Aprobación Final, y finalmente Aprobado o Rechazado. ¿Puedes crear este flujo de trabajo para mí?" "$GERENTE_CONVERSATION_ID" "Gerente" "$GERENTE_SESSION_ID"
 
-    send_message "Sí, por favor crea este flujo de trabajo de aprobación de presupuestos en el sistema. Lo necesitamos operacional para la próxima semana." "$GERENTE_CONVERSATION_ID" "Gerente"
+    send_message "Sí, por favor crea este flujo de trabajo de aprobación de presupuestos en el sistema. Lo necesitamos operacional para la próxima semana." "$GERENTE_CONVERSATION_ID" "Gerente" "$GERENTE_SESSION_ID"
 
-    send_message "Perfecto! Ahora también necesito un flujo de trabajo para manejo de reclamos de clientes. El proceso es: Reclamo Recibido, Investigación, Resolución Propuesta, y luego Reclamo Resuelto o Escalado." "$GERENTE_CONVERSATION_ID" "Gerente"
+    send_message "Perfecto! Ahora también necesito un flujo de trabajo para manejo de reclamos de clientes. El proceso es: Reclamo Recibido, Investigación, Resolución Propuesta, y luego Reclamo Resuelto o Escalado." "$GERENTE_CONVERSATION_ID" "Gerente" "$GERENTE_SESSION_ID"
 
-    send_message "Crea el flujo de trabajo de reclamos de clientes también, por favor." "$GERENTE_CONVERSATION_ID" "Gerente"
+    send_message "Crea el flujo de trabajo de reclamos de clientes también, por favor." "$GERENTE_CONVERSATION_ID" "Gerente" "$GERENTE_SESSION_ID"
 
     print_status "Conversación de gerente completada - Se crearon flujos de trabajo con requisitos claros"
 }
@@ -199,20 +224,24 @@ test_novato_persona() {
     echo -e "${CYAN}Contexto: Conoce su trabajo pero no entiende flujos formales${NC}"
     echo -e "${CYAN}Objetivo: Aprender a crear un flujo de gestión de tareas${NC}\n"
 
+    # Crear sesión para novato
+    NOVATO_SESSION_ID=$(create_session "novato_carlos")
+    print_status "Sesión creada para Novato: $NOVATO_SESSION_ID"
+
     # Novato comienza con incertidumbre
-    send_message "Hola, soy nuevo en esto. Manejo tareas en el trabajo pero no estoy seguro de cómo crear un flujo de trabajo. ¿Puedes ayudarme?" "" "Novato"
+    send_message "Hola, soy nuevo en esto. Manejo tareas en el trabajo pero no estoy seguro de cómo crear un flujo de trabajo. ¿Puedes ayudarme?" "" "Novato" "$NOVATO_SESSION_ID"
 
-    send_message "Bueno, cuando recibo una nueva tarea, generalmente simplemente empiezo a trabajar en ella. A veces olvido cosas o no sé qué hacer después. ¿Crees que un flujo de trabajo podría ayudarme?" "$NOVATO_CONVERSATION_ID" "Novato"
+    send_message "Bueno, cuando recibo una nueva tarea, generalmente simplemente empiezo a trabajar en ella. A veces olvido cosas o no sé qué hacer después. ¿Crees que un flujo de trabajo podría ayudarme?" "$NOVATO_CONVERSATION_ID" "Novato" "$NOVATO_SESSION_ID"
 
-    send_message "¡Eso suena útil! Entonces para mis tareas, típicamente recibo una solicitud, luego necesito planificarla, trabajar en ella, y entregarla. ¿Es suficiente para un flujo de trabajo?" "$NOVATO_CONVERSATION_ID" "Novato"
+    send_message "¡Eso suena útil! Entonces para mis tareas, típicamente recibo una solicitud, luego necesito planificarla, trabajar en ella, y entregarla. ¿Es suficiente para un flujo de trabajo?" "$NOVATO_CONVERSATION_ID" "Novato" "$NOVATO_SESSION_ID"
 
-    send_message "Tienes razón, debería pensar más en esto. Déjame pensar... Después de que recibo una solicitud de tarea, probablemente debería revisarla primero para entender qué se necesita. Luego la planifico, ejecuto el trabajo, reviso todo, y entrego al cliente. ¿Tiene más sentido así?" "$NOVATO_CONVERSATION_ID" "Novato"
+    send_message "Tienes razón, debería pensar más en esto. Déjame pensar... Después de que recibo una solicitud de tarea, probablemente debería revisarla primero para entender qué se necesita. Luego la planifico, ejecuto el trabajo, reviso todo, y entrego al cliente. ¿Tiene más sentido así?" "$NOVATO_CONVERSATION_ID" "Novato" "$NOVATO_SESSION_ID"
 
-    send_message "¡Sí, eso suena mucho mejor! ¿Puedes crear este flujo de trabajo de tareas para mí? Me gustaría ver cómo funciona." "$NOVATO_CONVERSATION_ID" "Novato"
+    send_message "¡Sí, eso suena mucho mejor! ¿Puedes crear este flujo de trabajo de tareas para mí? Me gustaría ver cómo funciona." "$NOVATO_CONVERSATION_ID" "Novato" "$NOVATO_SESSION_ID"
 
-    send_message "¡Esto es genial! Puedo ver cómo esto me ayudaría a mantenerme organizado. ¿Qué tal si quisiera agregar un paso para obtener aprobación de mi jefe antes de comenzar a trabajar? ¿Podría modificar el flujo de trabajo?" "$NOVATO_CONVERSATION_ID" "Novato"
+    send_message "¡Esto es genial! Puedo ver cómo esto me ayudaría a mantenerme organizado. ¿Qué tal si quisiera agregar un paso para obtener aprobación de mi jefe antes de comenzar a trabajar? ¿Podría modificar el flujo de trabajo?" "$NOVATO_CONVERSATION_ID" "Novato" "$NOVATO_SESSION_ID"
 
-    send_message "Sí, por favor agrega un paso de aprobación del jefe después de la fase de planificación y antes de la ejecución." "$NOVATO_CONVERSATION_ID" "Novato"
+    send_message "Sí, por favor agrega un paso de aprobación del jefe después de la fase de planificación y antes de la ejecución." "$NOVATO_CONVERSATION_ID" "Novato" "$NOVATO_SESSION_ID"
 
     print_status "Conversación de novato completada - Aprendió diseño de flujos y creó flujo personalizado"
 }
